@@ -12,9 +12,13 @@ extractor/   puml-extract (Rust, links mago 1.54.0)
   src/laravel.rs    Eloquent relations and facades
   src/verdict.rs    layers, rules, module cycles with their cheapest cut, metrics, fan-out outliers
   src/report.rs     the text of `report` and `show`
+  src/git.rs        the merge base, the changed files and their contents at the base
+  src/diff.rs       the base graph, and what changed between it and the head
+  src/diff_report.rs  the text, Markdown and JSON of `diff`
 viewer/      index.html, app.js (rendering and the side panel), model.js (levels, aggregation, budgets, cycles in a view)
 fixtures/    shop: a small fixture app with a hand-written expected graph
              blog: a fixture with seeded rule violations and a module cycle, with hand-written expected/violations.json
+             blog-pr: a pull request on blog (head/ laid over it, deleted lists removed files), with hand-written expected/diff.json
 tests/       golden, invariant, drill, cycle, edge-budget and rule tests on the JSON contract (node --test)
 verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
 assets/      the icon and the README screenshots
@@ -34,8 +38,8 @@ with `include_str!`, so rebuild after any change in `viewer/` and regenerate the
 While working on the viewer, you can also serve the repository and open
 `viewer/index.html?graph=../out/app.json`, which loads the modules directly.
 
-The golden files in `fixtures/shop/expected/` and `fixtures/blog/expected/violations.json` are written by
-hand. When one fails, decide by hand which side is wrong before you touch it.
+The golden files in `fixtures/shop/expected/`, `fixtures/blog/expected/violations.json` and
+`fixtures/blog-pr/expected/diff.json` are written by hand. When one fails, decide by hand which side is wrong before you touch it.
 
 ## Why the crates and not the `mago` CLI
 
@@ -120,6 +124,39 @@ viewer and `report` read the same violations, cycles and metrics and never disag
 
 A fresh `laravel/laravel` skeleton must produce zero violations and zero cycles. `fixtures/blog` seeds
 six violations and one cycle.
+
+## The diff
+
+`puml-extract diff <dir> <base>` compares two graphs of the same project.
+
+- **The head** is the working tree, including uncommitted and untracked files. **The base** is
+  `git merge-base <base> HEAD`, the commit a pull request is compared with on GitHub.
+- **Changed files** come from `git diff --cached --name-status -M` against the base, run on a copy of
+  the index after `git add --all`, so untracked files and renames count and the user's index is never
+  touched.
+- **The base graph** reuses the head's facts for unchanged files, collects changed files from
+  `git show <base>:<path>`, and assembles and judges the result like any graph. `vendor/` is read from
+  disk for both sides.
+- **An edge** is the same edge on both sides when its from, to, kind and label match. Static and
+  signature edges ignore the label, which names the method. Evidence is never compared, so moving code
+  inside a file changes nothing.
+- **A rename** is a file git reports as renamed that holds exactly one removed and one added class.
+- **A removed class still in use** is a class declared at the base that the head only references: it is
+  external but under an app root.
+- **Cycles** are compared by `remaining`, the modules still in a cycle once traits, interfaces and
+  abstract classes are counted with their users, as in the report. A trait module that joins a cycle
+  through its users is not a join.
+- **The reading order** groups the classes of the changed files into strongly connected components
+  (Tarjan) and orders the groups so a class comes after the classes of the pull request it depends on
+  (Kahn).
+- **The impact** is the classes outside the pull request that use a modified class, and everything that
+  reaches a modified class transitively, counted per module.
+- `--strict` exits 1 when the head adds a rule violation, adds a module to a cycle, or leaves a removed
+  class in use.
+
+`tests/diff.test.js` builds a git repository from `fixtures/blog` and `fixtures/blog-pr` and checks the
+diff against `expected/diff.json` before and after the pull request is committed, and checks the edge
+changes against fresh extractions of both sides.
 
 ## Graph JSON (version 2)
 

@@ -1,0 +1,85 @@
+{
+    "files": [
+        "added app/Data/PostData.php",
+        "modified app/Http/Controllers/PostController.php",
+        "modified app/Jobs/PublishPost.php",
+        "renamed app/Listeners/SendPublishedNotification.php from app/Listeners/NotifyAuthor.php",
+        "modified app/Models/Post.php"
+    ],
+    "other_files": ["added routes/web.php"],
+    "classes": {
+        "added": ["App\\Data\\PostData @app/Data/PostData.php:7"],
+        "removed": [],
+        "renamed": ["App\\Listeners\\NotifyAuthor -> App\\Listeners\\SendPublishedNotification"],
+        "modified": {
+            "App\\Http\\Controllers\\PostController": [],
+            "App\\Jobs\\PublishPost": [
+                "added public static function fromData(PostData $data): self",
+                "removed public static function fromRequest(StorePostRequest $request): self"
+            ],
+            "App\\Models\\Post": ["changed public function url(): string -> public function url(bool $absolute): string"]
+        }
+    },
+    "edges": {
+        "added": [
+            "App\\Data\\PostData -> App\\Http\\Requests\\StorePostRequest signature @app/Data/PostData.php:15",
+            "App\\Http\\Controllers\\PostController -> App\\Data\\PostData static @app/Http/Controllers/PostController.php:15",
+            "App\\Jobs\\PublishPost -> App\\Data\\PostData signature @app/Jobs/PublishPost.php:15",
+            "App\\Listeners\\SendPublishedNotification -> App\\Events\\PostPublished signature @app/Listeners/SendPublishedNotification.php:9"
+        ],
+        "removed": [
+            "App\\Jobs\\PublishPost -> App\\Http\\Requests\\StorePostRequest signature @app/Jobs/PublishPost.php:15",
+            "App\\Listeners\\NotifyAuthor -> App\\Events\\PostPublished signature @app/Listeners/NotifyAuthor.php:9"
+        ]
+    },
+    "modules": [
+        "App\\Data -> App\\Http 0 -> 1, 1 violating",
+        "App\\Http -> App\\Data 0 -> 1, 0 violating",
+        "App\\Jobs -> App\\Data 0 -> 1, 0 violating",
+        "App\\Jobs -> App\\Http 1 -> 0, 0 violating"
+    ],
+    "violations": {
+        "added": [
+            "core-independent-of-http App\\Data\\PostData -> App\\Http\\Requests\\StorePostRequest signature @app/Data/PostData.php:15"
+        ],
+        "removed": [
+            "core-independent-of-http App\\Jobs\\PublishPost -> App\\Http\\Requests\\StorePostRequest signature @app/Jobs/PublishPost.php:15"
+        ]
+    },
+    "cycles": [
+        {
+            "status": "grown",
+            "after": ["App\\Console", "App\\Data", "App\\Events", "App\\Http", "App\\Jobs", "App\\Listeners", "App\\Models"],
+            "joined": ["App\\Data"],
+            "left": [],
+            "cut_class_edges": 5
+        }
+    ],
+    "metrics": {
+        "App\\Data": { "before": null, "after": { "classes": 1, "afferent": 2, "efferent": 1, "instability": 0.3333 } },
+        "App\\Http": {
+            "before": { "classes": 2, "afferent": 4, "efferent": 3, "instability": 0.4286 },
+            "after": { "classes": 2, "afferent": 4, "efferent": 4, "instability": 0.5 }
+        },
+        "App\\Listeners": {
+            "before": { "classes": 1, "afferent": 1, "efferent": 1, "instability": 0.5 },
+            "after": { "classes": 2, "afferent": 1, "efferent": 1, "instability": 0.5 }
+        }
+    },
+    "outliers": { "added": [], "removed": [] },
+    "dangling": ["App\\Listeners\\NotifyAuthor <- App\\Events\\PostPublished reference @app/Events/PostPublished.php:16"],
+    "impact": {
+        "classes": [
+            "App\\Models\\Post api changed <- App\\Console\\Commands\\PrunePosts, App\\Events\\PostPublished, App\\Models\\User, App\\Providers\\AppServiceProvider",
+            "App\\Http\\Controllers\\PostController <- App\\Console\\Commands\\PrunePosts, App\\Providers\\AppServiceProvider"
+        ],
+        "reach": { "App\\Console": 1, "App\\Events": 1, "App\\Models": 1, "App\\Providers": 1, "Database\\Seeders": 1 }
+    },
+    "reading_order": [
+        ["App\\Data\\PostData"],
+        ["App\\Http\\Controllers\\PostController", "App\\Jobs\\PublishPost", "App\\Models\\Post"],
+        ["App\\Listeners\\SendPublishedNotification"]
+    ],
+    "notes": [],
+    "worsens": true
+}

@@ -50,8 +50,9 @@ pnpm test
 
 - The invariant tests also run on `out/laravelio.json` and `out/framework.json`, but only if those files
   exist. Regenerate them first, or the large corpora are silently skipped.
-- `fixtures/shop/expected/` is hand-written. When a golden fails, decide by hand which side is wrong
-  before touching the expected file. Never update it just to turn the test green.
+- `fixtures/shop/expected/` and `fixtures/blog-pr/expected/diff.json` are hand-written. When a golden
+  fails, decide by hand which side is wrong before touching the expected file. Never update it just to
+  turn the test green.
 - The fixture has no nested namespaces. Drilling rules are covered by the synthetic graph in
   `tests/drill.test.js`; extend it when a rule about the namespace tree changes.
 - The invariants that caught real bugs:

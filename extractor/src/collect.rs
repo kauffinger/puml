@@ -49,6 +49,7 @@ const RELATION_METHODS: &[(&str, &str)] = &[
     ("morphedbymany", "MorphToMany"),
 ];
 
+#[derive(Clone)]
 pub struct RawEdge {
     pub from: String,
     pub to: String,
@@ -59,7 +60,7 @@ pub struct RawEdge {
     pub declared_at: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct FileFacts {
     pub classes: Vec<ClassNode>,
     pub edges: Vec<RawEdge>,
@@ -72,6 +73,10 @@ pub fn collect_file(path: &Path, relative: &str) -> FileFacts {
         return FileFacts::default();
     };
 
+    collect_source(path, relative, contents)
+}
+
+pub fn collect_source(path: &Path, relative: &str, contents: Vec<u8>) -> FileFacts {
     let file = File::new(
         Cow::Owned(relative.as_bytes().to_vec()),
         FileType::Host,

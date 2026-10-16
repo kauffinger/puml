@@ -156,7 +156,7 @@ pub struct Fold {
     pub users: usize,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Cost {
     pub class_edges: u64,
     pub files: usize,

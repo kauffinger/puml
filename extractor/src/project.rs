@@ -33,6 +33,12 @@ impl Project {
         let root = root.canonicalize().map_err(|error| format!("{}: {error}", root.display()))?;
         let composer = read_json(&root.join("composer.json"))?;
 
+        Ok(Project::with_composer(root, &composer, include_dev))
+    }
+
+    /// The project as described by a composer.json that is not necessarily the one on disk, such as the
+    /// version at a pull request's base. Vendor packages always come from the vendor/ directory on disk.
+    pub fn with_composer(root: PathBuf, composer: &Value, include_dev: bool) -> Self {
         let name = composer["name"]
             .as_str()
             .map(str::to_string)
@@ -46,7 +52,7 @@ impl Project {
 
         let vendor = VendorIndex::load(&vendor_dir(&root));
 
-        Ok(Project { root, name, psr4, vendor })
+        Project { root, name, psr4, vendor }
     }
 
     pub fn php_files(&self) -> Vec<PathBuf> {
@@ -59,6 +65,12 @@ impl Project {
         }
 
         files.into_iter().collect()
+    }
+
+    /// Whether a PHP file belongs to the graph, which reads only the files under the PSR-4 roots.
+    pub fn owns(&self, path: &Path) -> bool {
+        path.extension().is_some_and(|extension| extension == "php")
+            && self.psr4.iter().flat_map(|root| root.dirs.iter()).any(|dir| path.starts_with(dir))
     }
 
     pub fn relative(&self, path: &Path) -> String {

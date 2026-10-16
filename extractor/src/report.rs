@@ -623,17 +623,17 @@ fn in_namespace(namespace: &str, prefix: &str) -> bool {
     namespace == prefix || namespace.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('\\'))
 }
 
-fn edge_line(edge: &Edge) -> String {
+pub fn edge_line(edge: &Edge) -> String {
     let via = edge.label.as_ref().map(|label| format!("  via {label}")).unwrap_or_default();
 
     format!("{} -> {}  {}{via}  {}", edge.from, edge.to, edge.kind.name(), evidence(edge))
 }
 
-fn evidence(edge: &Edge) -> String {
+pub fn evidence(edge: &Edge) -> String {
     edge.evidence.iter().map(|place| format!("{}:{}", place.file, place.line)).collect::<Vec<_>>().join(" ")
 }
 
-fn declared_at(class: &ClassNode) -> String {
+pub fn declared_at(class: &ClassNode) -> String {
     format!("{}:{}", class.file.as_deref().unwrap_or_default(), class.line.unwrap_or_default())
 }
 
@@ -687,7 +687,7 @@ fn visibility(visibility: &str) -> &'static str {
     }
 }
 
-fn format_property(property: &Property) -> String {
+pub fn format_property(property: &Property) -> String {
     let kind = property.r#type.as_ref().map(|kind| format!(": {kind}")).unwrap_or_default();
     let modifiers: Vec<&str> = [property.r#static.then_some("static"), property.readonly.then_some("readonly")].into_iter().flatten().collect();
     let modifiers = if modifiers.is_empty() { String::new() } else { format!(" {}", modifiers.join(" ")) };
@@ -695,7 +695,7 @@ fn format_property(property: &Property) -> String {
     format!("{}{}{kind}{modifiers}", visibility(property.visibility), property.name)
 }
 
-fn format_method(method: &Method) -> String {
+pub fn format_method(method: &Method) -> String {
     let params: Vec<String> = method
         .params
         .iter()
@@ -720,6 +720,6 @@ fn metric(value: Option<f64>) -> String {
     value.map_or("-".to_string(), |value| fixed(value, 2))
 }
 
-fn plural(count: usize, suffix: &str) -> &str {
+pub fn plural(count: usize, suffix: &str) -> &str {
     if count == 1 { "" } else { suffix }
 }

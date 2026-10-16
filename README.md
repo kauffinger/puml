@@ -16,6 +16,8 @@ architecture breaks the conventions a Laravel application is expected to follow.
   in your editor.
 - **An architecture verdict.** Rule violations, dependency cycles with the cheapest way to break them,
   and coupling metrics per module, in the viewer and in the terminal.
+- **Pull request reviews.** What a branch does to the verdict, the order to read its classes in, and
+  what else depends on them.
 
 ## Install
 
@@ -176,6 +178,77 @@ FAN-OUT OUTLIERS  (distinct app classes outside the class's own module; threshol
 
 The output is sorted and stable, so two runs diff cleanly.
 
+## Reviewing a pull request
+
+`diff` compares the graph of your working tree with the graph at the point where your branch left the
+base branch, the same comparison a pull request on GitHub shows:
+
+```sh
+puml-extract diff path/to/app origin/main                      # text, for the terminal or an agent
+puml-extract diff path/to/app origin/main --format markdown    # for a pull request comment
+puml-extract diff path/to/app origin/main --format json
+puml-extract diff path/to/app origin/main --strict             # exit 1 if the architecture got worse
+```
+
+It tells a reviewer what a text diff does not:
+
+- **The verdict, before and after.** Rule violations added and fixed, module cycles that appeared,
+  grew, shrank or broke, with the cheapest cut at the head.
+- **Removed classes still in use.** A class the pull request deletes or renames that something still
+  references.
+- **An order to read it in.** Every added and modified class after the classes of the pull request it
+  depends on, with its public API changes and the dependencies it gained or lost, each with `file:line`.
+  Classes that depend on each other are grouped.
+- **What else it affects.** The classes outside the pull request that use what it modifies, and how many
+  depend on it through others, per module.
+
+Uncommitted and untracked files count, so you can run it before you commit. Moved lines are not
+changes: a dependency is the same dependency wherever it sits in the file. `--strict` fails when the
+pull request adds a rule violation, adds a module to a cycle, or leaves a removed class in use. The
+Markdown adds a Mermaid diagram of the module edges that changed, which GitHub draws in the comment.
+
+An excerpt, for a pull request on `fixtures/blog` that moves a job from the request to a new data object
+and renames a listener:
+
+```
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.2.1 (mago 1.54.0)
+classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
+architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
+
+RULE VIOLATIONS  (one per class edge; puml-extract report explains each rule)
+  new  core-independent-of-http  App\Data\PostData -> App\Http\Requests\StorePostRequest (signature via PostData::fromRequest())  app/Data/PostData.php:15
+  fixed  core-independent-of-http  App\Jobs\PublishPost -> App\Http\Requests\StorePostRequest (signature via PublishPost::fromRequest())  app/Jobs/PublishPost.php:15
+
+REMOVED CLASSES STILL IN USE  (the head references classes it no longer declares)
+  App\Listeners\NotifyAuthor is still used by
+    App\Events\PostPublished  reference  app/Events/PostPublished.php:16
+
+READ IN THIS ORDER  (each class after the classes of this pull request it depends on)
+   1. App\Data\PostData  added  app/Data/PostData.php:7
+    + now depends on App\Http\Requests\StorePostRequest (signature via PostData::fromRequest())  app/Data/PostData.php:15  breaks core-independent-of-http
+      the next 3 classes depend on each other; read them together:
+   2. App\Http\Controllers\PostController  modified  app/Http/Controllers/PostController.php:11
+    + now depends on App\Data\PostData (static via PostData::fromRequest())  app/Http/Controllers/PostController.php:15
+   3. App\Jobs\PublishPost  modified  app/Jobs/PublishPost.php:9
+    added public static function fromData(PostData $data): self
+    removed public static function fromRequest(StorePostRequest $request): self
+    ...
+
+WHAT ELSE DEPENDS ON IT  (classes outside this pull request that use the classes it modifies)
+  App\Models\Post, whose public API changed, is used by 4 classes: App\Console\Commands\PrunePosts, App\Events\PostPublished, App\Models\User, App\Providers\AppServiceProvider
+  ...
+```
+
+In CI, check out the full history, so that the base branch and the merge base are there:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- run: composer install --no-interaction --no-progress
+- run: puml-extract diff . origin/${{ github.base_ref }} --format markdown > puml.md
+```
+
 ## What the verdict checks
 
 ### Rules
@@ -247,6 +320,8 @@ Every arrow comes from a name PHP would resolve, never from a text search:
 - **Nothing is guessed.** A dependency that is only known at runtime, such as `new $class` or a relation
   whose related class is not written as `Foo::class`, is listed under "unresolved" with its `file:line`
   instead of being drawn.
+- **`diff` reads vendor classes from the head.** Both graphs resolve against the `vendor/` directory on
+  disk. When a pull request changes `composer.lock`, the report says so.
 - **Editor links point at your machine.** They use the absolute path of the project at extraction time,
   so in a file someone sent you they will not open.
 
