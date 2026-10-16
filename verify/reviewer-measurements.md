@@ -98,7 +98,9 @@ job. Every other question takes one `report`, though in a terminal 800 px high t
    five busiest classes by fan-out, a table of modules sorted by Ca with Ce, and the leaves (Ca 0). This
    took Q8, Q9, Q10 and Q12 from 26–28 clicks to 2–3 page-downs.
 3. Every view has a zoom floor of scale 1. Labels never shrink below 11 px, and a cropped view says so and
-   offers "show all". This fixed every checklist view below 11 px.
+   offers "show all". This fixed every checklist view below 11 px. A dot layout that would need a scale
+   below 1 gives way to `neato` when `neato` fits better; before, dot was kept down to 0.8, which the floor
+   then cropped (`App\Http` at 1600×1000).
 4. `visibleEdges` ranks the edges that break a rule first. In the banded level 1, the heaviest edges
    come before cycle edges. The judge had found `Http → Models` (38) and `Jobs → Models` (118) hidden
    behind light cycle edges.

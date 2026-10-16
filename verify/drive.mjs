@@ -38,6 +38,7 @@ try {
     page = await connect();
 
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await page.send('Network.setCacheDisabled', { cacheDisabled: true });
 
     for (const task of tasks) {
         await page.send('Page.navigate', { url: 'about:blank' });

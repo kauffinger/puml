@@ -23,7 +23,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.2.0
+VERSION=v0.2.1
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -65,14 +65,20 @@ puml draws it.
 ### Modules
 
 The first view, shown above, has one box per module: a namespace directly under a PSR-4 root, such as
-`App\Models` or `App\Http`. Folder-shaped boxes are vendor packages, such as `laravel/framework`. An
-arrow from `App\Http` to `App\Models` means classes in `App\Http` use classes in `App\Models`; the
-number on it is how many class-to-class dependencies it stands for.
+`App\Models` or `App\Http`. Each module sits in the band of its layer: `http`, `core`,
+`console`, `providers` or `database`. An arrow from `App\Http` to `App\Models` means classes
+in `App\Http` use classes in `App\Models`; the number on it is how many class-to-class dependencies it
+stands for. Tick **vendor** to add the packages, such as `laravel/framework`, as folder-shaped boxes.
 
 - **Red** boxes and arrows are dependency cycles: modules that, through some path, all depend on each
   other.
 - **Purple** arrows break an architecture rule. Here, seven jobs in `App\Jobs` accept form requests from
   `App\Http`.
+
+The side panel is the verdict in reading order. It lists each violation with its `file:line`, then the
+layers and the directions they forbid, then each cycle with the cheapest cut. After those come the
+busiest classes and the modules ranked by how much depends on them, ending with the ones nothing
+depends on.
 
 ### Classes
 
@@ -111,9 +117,12 @@ picture was about:
 | search field | jumps straight to a module, namespace or class |
 
 The checkboxes in the toolbar hide kinds of dependencies, for example everything except `extends` and
-`implements` to see only the type hierarchy. `vendor` hides the packages. `budget` sets how many boxes a
-view may have before the least important ones are folded into one "N more" box, which you can click to
-list.
+`implements` to see only the type hierarchy. `vendor` shows the packages; the modules view leaves them
+out unless it is ticked. `budget` sets how many boxes a view may have before the least important ones
+are folded into one "N more" box, which you can click to list.
+
+Text is never drawn smaller than 11 px. When a view does not fit the window, the stats line says "part
+off-screen": drag to pan, scroll to zoom, or click **show all**.
 
 Every `file:line` in the side panel can open in VS Code, Cursor or PhpStorm; choose the editor in the
 toolbar. The address bar always holds the current view, so a bookmark or a shared link opens the same
@@ -132,7 +141,7 @@ puml-extract show path/to/app 'App\Jobs' 'App\Http'   # one arrow, with every fi
 An excerpt of `report` on laravel.io:
 
 ```
-puml report: laravelio/laravel.io (216 classes, 1149 edges, puml-extract 0.2.0 (mago 1.54.0))
+puml report: laravelio/laravel.io (216 classes, 1149 edges, puml-extract 0.2.1 (mago 1.54.0))
 verdict: 7 rule violations, 2 module cycles, 9 fan-out outliers
 
 RULES  (one line per class edge that breaks a rule)

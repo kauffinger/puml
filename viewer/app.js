@@ -6,7 +6,6 @@ const TOOLTIP_PAIRS = 12;
 const LINE_LIMIT = 72;
 const EVIDENCE_LIMIT = 400;
 const BUSIEST_LIMIT = 5;
-const LEGIBLE_SCALE = 0.8;
 const MINIMUM_SCALE = 1;
 const MODULE_EDGE_BUDGET = 30;
 const LAYER_ORDER = ['http', 'console', 'providers', 'core', 'database', 'tests'];
@@ -208,14 +207,14 @@ function layout(projection, edges) {
     const preferred = projection.edge ? 'LR' : projection.level === 3 ? 'BT' : 'TB';
     const layered = viz.renderSVGElement(toDot(projection, edges, preferred));
 
-    if (fitScale(layered) >= 1) {
+    if (fitScale(layered) >= MINIMUM_SCALE) {
         return layered;
     }
 
     const sideways = viz.renderSVGElement(toDot(projection, edges, preferred === 'LR' ? 'TB' : 'LR'));
     const best = fitScale(sideways) > fitScale(layered) ? sideways : layered;
 
-    if (fitScale(best) >= LEGIBLE_SCALE || banded(projection)) {
+    if (fitScale(best) >= MINIMUM_SCALE || banded(projection)) {
         return best;
     }
 
