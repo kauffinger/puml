@@ -87,18 +87,35 @@ impl Project {
 }
 
 impl VendorIndex {
+    /// Without a vendor/ directory, as in CI before `composer install`, composer.lock still names every
+    /// package and its autoload roots, so vendor classes keep their packages but not their files.
     fn load(vendor: &Path) -> Self {
-        let Ok(installed) = read_json(&vendor.join("composer/installed.json")) else {
+        if let Ok(installed) = read_json(&vendor.join("composer/installed.json")) {
+            let packages = installed["packages"].as_array().cloned().unwrap_or_default();
+
+            return VendorIndex::from_packages(&packages, |package| {
+                vendor.join("composer").join(package["install-path"].as_str()?).into()
+            });
+        }
+
+        let Ok(lock) = read_json(&vendor.with_file_name("composer.lock")) else {
             return VendorIndex::default();
         };
 
-        let packages = installed["packages"].as_array().cloned().unwrap_or_default();
+        let packages: Vec<Value> = ["packages", "packages-dev"]
+            .iter()
+            .flat_map(|key| lock[*key].as_array().cloned().unwrap_or_default())
+            .collect();
 
+        VendorIndex::from_packages(&packages, |package| vendor.join(package["name"].as_str()?).into())
+    }
+
+    fn from_packages(packages: &[Value], install_path: impl Fn(&Value) -> Option<PathBuf>) -> Self {
         let packages = packages
             .iter()
             .filter_map(|package| {
                 let name = package["name"].as_str()?.to_string();
-                let install_path = vendor.join("composer").join(package["install-path"].as_str()?);
+                let install_path = install_path(package)?;
                 let install_path = install_path.canonicalize().unwrap_or(install_path);
                 let psr4 = psr4_roots(&package["autoload"]["psr-4"], &install_path);
 

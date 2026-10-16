@@ -25,7 +25,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.3.0
+VERSION=v0.3.1
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -211,7 +211,7 @@ An excerpt, for a pull request on `fixtures/blog` that moves a job from the requ
 and renames a listener:
 
 ```
-puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.3.0 (mago 1.54.0)
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.3.1 (mago 1.54.0)
 classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
 architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
 
@@ -260,7 +260,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: kauffinger/puml@v0.3.0
+      - uses: kauffinger/puml@v0.3.1
         with:
           strict: true
 ```
@@ -272,12 +272,12 @@ jobs:
 | `strict`            | `false`                    | fail the job, after commenting, when the pull request makes the architecture worse |
 | `comment`           | `true`                     | comment on the pull request; the job summary is always written |
 | `working-directory` | `.`                        | the directory that holds `composer.json` |
-| `base`              | the pull request's base    | a commit or branch to compare with, required outside `pull_request` events |
+| `base`              | `origin/` + the base branch | a commit or branch to compare with, required outside `pull_request` events |
 | `version`           | the release of the action  | the `puml-extract` release to download |
 
 The output `worsens` is `"true"` when `--strict` would fail. `composer install` is not needed: without
-`vendor/`, the verdict is the same, and a facade call is shown as a dependency on the facade instead of
-the service behind it.
+`vendor/`, puml reads the packages from `composer.lock`, so the verdict is the same. Only a facade call is
+shown as a dependency on the facade instead of the service behind it.
 
 A pull request from a fork gets a read-only token, so the action cannot comment on it; the report is
 still in the job summary.

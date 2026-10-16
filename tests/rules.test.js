@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { DEFAULT_BUDGETS, indexGraph, moduleOf, project } from '../viewer/model.js';
@@ -17,6 +19,23 @@ const describe = ({ rule, edge }) => edge.evidence.map((place) => `${rule} ${edg
 
 test('blog golden: every seeded violation is found at its line, and nothing else', () => {
     assert.deepEqual(violations(blog).flatMap(describe), expected.violations);
+});
+
+test('blog golden: the same violations without vendor/, from composer.lock alone, as in CI', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'puml-lock-'));
+    cpSync(`${repository}fixtures/blog`, dir, { recursive: true, filter: (path) => !/\/(vendor|expected)(\/|$)/.test(path) });
+    const installed = readJson('fixtures/blog/vendor/composer/installed.json');
+    writeFileSync(join(dir, 'composer.lock'), JSON.stringify({ packages: installed.packages, 'packages-dev': [] }));
+
+    try {
+        const locked = indexGraph(extract(dir));
+
+        assert.ok(!existsSync(join(dir, 'vendor')));
+        assert.deepEqual(violations(locked).flatMap(describe), expected.violations);
+        assert.deepEqual(moduleCycles(locked).map((cycle) => cycle.modules), expected.cycles);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test('blog golden: the seeded module cycle', () => {

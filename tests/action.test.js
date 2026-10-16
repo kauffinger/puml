@@ -23,6 +23,7 @@ describe('the GitHub Action', () => {
 
     before(() => {
         dir = repositoryWithPullRequest();
+        git(dir, 'update-ref', 'refs/remotes/origin/main', 'main');
         runner = mkdtempSync(join(tmpdir(), 'puml-action-'));
         mkdirSync(join(runner, 'bin'));
         writeFileSync(join(runner, 'bin', 'gh'), fakeGh);
@@ -34,7 +35,7 @@ describe('the GitHub Action', () => {
         rmSync(runner, { recursive: true, force: true });
     });
 
-    function report({ base = 'HEAD', strict = 'false', comments = [] } = {}) {
+    function report({ base = '', baseBranch = 'main', strict = 'false', comments = [] } = {}) {
         const run = mkdtempSync(join(runner, 'run-'));
         const file = (name) => join(run, name);
         writeFileSync(file('comments.json'), JSON.stringify(comments));
@@ -49,6 +50,7 @@ describe('the GitHub Action', () => {
                 GITHUB_OUTPUT: file('output'),
                 GITHUB_STEP_SUMMARY: file('summary'),
                 GITHUB_REPOSITORY: 'owner/app',
+                GITHUB_BASE_REF: baseBranch,
                 GH_LOG: file('gh.log'),
                 GH_COMMENTS: file('comments.json'),
                 GH_BODY: file('body.md'),
@@ -81,6 +83,7 @@ describe('the GitHub Action', () => {
         assert.equal(result.calls.length, 2);
         assert.match(result.calls[1], /^api --method POST repos\/owner\/app\/issues\/12\/comments /);
         assert.ok(result.body.startsWith('<!-- puml-diff -->\n## puml:'));
+        assert.match(result.body, /^`origin\/main` \(\w{7}\) → `HEAD`/m);
     });
 
     test('updates its own comment instead of adding another', () => {
@@ -111,11 +114,19 @@ describe('the GitHub Action', () => {
         assert.deepEqual(result.calls, []);
     });
 
+    test('needs a base outside a pull request', () => {
+        const result = report({ baseBranch: '' });
+
+        assert.equal(result.status, 1);
+        assert.match(result.stdout, /::error::Set the base input/);
+        assert.deepEqual(result.calls, []);
+    });
+
     test('stays quiet on a pull request that changes no classes', () => {
         git(dir, 'add', '--all');
         git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Pull request');
 
-        const result = report();
+        const result = report({ base: 'HEAD' });
 
         assert.equal(result.status, 0, result.stderr);
         assert.match(result.output, /^worsens=false$/m);

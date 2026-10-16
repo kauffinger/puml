@@ -8,8 +8,7 @@ branding:
 
 inputs:
   base:
-    description: The commit or branch to compare with. Defaults to the base of the pull request.
-    default: ${{ github.event.pull_request.base.sha }}
+    description: The commit or branch to compare with. Defaults to the pull request's base branch.
   working-directory:
     description: The directory that holds composer.json.
     default: .
@@ -21,7 +20,7 @@ inputs:
     default: 'false'
   version:
     description: The puml-extract release to use.
-    default: v0.3.0
+    default: v0.3.1
   github-token:
     description: The token used to comment. It needs pull-requests write permission.
     default: ${{ github.token }}

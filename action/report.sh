@@ -8,7 +8,9 @@ directory="$RUNNER_TEMP/puml"
 report="$directory/diff.md"
 comment="$directory/comment.md"
 
-if [ -z "$PUML_BASE" ]; then
+base=${PUML_BASE:-${GITHUB_BASE_REF:+origin/$GITHUB_BASE_REF}}
+
+if [ -z "$base" ]; then
     echo "::error::Set the base input: only pull_request events have a base to compare with."
     exit 1
 fi
@@ -16,7 +18,7 @@ fi
 mkdir -p "$directory"
 
 status=0
-puml-extract diff "$PUML_DIRECTORY" "$PUML_BASE" --format markdown --strict > "$report" || status=$?
+puml-extract diff "$PUML_DIRECTORY" "$base" --format markdown --strict > "$report" || status=$?
 
 if [ "$status" -gt 1 ]; then
     exit "$status"
@@ -44,7 +46,7 @@ if [ "$PUML_COMMENT" = true ] && [ -n "${PULL_REQUEST:-}" ]; then
     if [ -n "$existing" ]; then
         gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" --field "body=@$comment" > /dev/null \
             || echo "::warning::Could not update the puml comment. A pull request from a fork gets a read-only token."
-    elif [ "$(puml-extract diff "$PUML_DIRECTORY" "$PUML_BASE" --format json | jq '.files | length')" -gt 0 ]; then
+    elif [ "$(puml-extract diff "$PUML_DIRECTORY" "$base" --format json | jq '.files | length')" -gt 0 ]; then
         gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST/comments" --field "body=@$comment" > /dev/null \
             || echo "::warning::Could not comment on the pull request. A pull request from a fork gets a read-only token."
     fi
