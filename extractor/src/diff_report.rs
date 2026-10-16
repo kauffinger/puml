@@ -148,7 +148,7 @@ impl<'a> Writer<'a> {
         );
 
         let counts = format!(
-            "classes: {} added, {} modified, {} renamed, {} removed; class edges: {} added, {} removed; {} changed file{} declare classes, {} other{} changed",
+            "classes: {} added, {} modified, {} renamed, {} removed; class edges: {} added, {} removed; {} changed {} classes, {} other{} changed",
             classes.added.len(),
             classes.modified.len(),
             classes.renamed.len(),
@@ -156,7 +156,7 @@ impl<'a> Writer<'a> {
             diff.edges.added.len(),
             diff.edges.removed.len(),
             diff.files.len(),
-            plural(diff.files.len(), "s"),
+            if diff.files.len() == 1 { "file declares" } else { "files declare" },
             diff.other_files.len(),
             if diff.other_files.len() == 1 { " file" } else { " files" },
         );
