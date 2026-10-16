@@ -25,7 +25,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.2.1
+VERSION=v0.3.0
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -211,7 +211,7 @@ An excerpt, for a pull request on `fixtures/blog` that moves a job from the requ
 and renames a listener:
 
 ```
-puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.2.1 (mago 1.54.0)
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.3.0 (mago 1.54.0)
 classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
 architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
 
@@ -239,15 +239,48 @@ WHAT ELSE DEPENDS ON IT  (classes outside this pull request that use the classes
   ...
 ```
 
-In CI, check out the full history, so that the base branch and the merge base are there:
+### On GitHub
+
+The action comments the Markdown report on each pull request and updates that one comment on every
+push. A pull request that changes no class gets no comment. The report is also in the job summary.
 
 ```yaml
-- uses: actions/checkout@v4
-  with:
-    fetch-depth: 0
-- run: composer install --no-interaction --no-progress
-- run: puml-extract diff . origin/${{ github.base_ref }} --format markdown > puml.md
+name: Architecture
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  puml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: kauffinger/puml@v0.3.0
+        with:
+          strict: true
 ```
+
+`fetch-depth: 0` is needed so the merge base is there. The inputs:
+
+| Input               | Default                    | What it does |
+|---------------------|----------------------------|--------------|
+| `strict`            | `false`                    | fail the job, after commenting, when the pull request makes the architecture worse |
+| `comment`           | `true`                     | comment on the pull request; the job summary is always written |
+| `working-directory` | `.`                        | the directory that holds `composer.json` |
+| `base`              | the pull request's base    | a commit or branch to compare with, required outside `pull_request` events |
+| `version`           | the release of the action  | the `puml-extract` release to download |
+
+The output `worsens` is `"true"` when `--strict` would fail. `composer install` is not needed: without
+`vendor/`, the verdict is the same, and a facade call is shown as a dependency on the facade instead of
+the service behind it.
+
+A pull request from a fork gets a read-only token, so the action cannot comment on it; the report is
+still in the job summary.
 
 ## What the verdict checks
 

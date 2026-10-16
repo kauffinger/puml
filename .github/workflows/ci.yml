@@ -24,6 +24,9 @@ jobs:
         with:
           workspaces: extractor
 
+      - name: Check the action's scripts
+        run: shellcheck action/*.sh
+
       - name: Build the extractor
         working-directory: extractor
         run: cargo build --release --locked

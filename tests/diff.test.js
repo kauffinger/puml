@@ -1,19 +1,10 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { after, before, describe, test } from 'node:test';
-import { extract, extractor, readJson, repository } from './support.js';
+import { extract, extractor, git, readJson, repositoryWithPullRequest } from './support.js';
 
 const expected = readJson('fixtures/blog-pr/expected/diff.json');
-
-function git(dir, ...args) {
-    const result = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
-
-    return result.stdout;
-}
 
 function diff(dir, base, ...flags) {
     const result = spawnSync(extractor, ['diff', dir, base, ...flags], { encoding: 'utf8' });
@@ -26,24 +17,6 @@ function diffJson(dir, base) {
     assert.equal(result.status, 0, result.stderr);
 
     return JSON.parse(result.stdout);
-}
-
-/** The blog fixture committed once, with the pull request laid over it in the working tree. */
-function repositoryWithPullRequest() {
-    const dir = mkdtempSync(join(tmpdir(), 'puml-diff-'));
-    cpSync(`${repository}fixtures/blog`, dir, { recursive: true, filter: (path) => !path.includes('/expected') });
-
-    git(dir, 'init', '--quiet', '--initial-branch=main');
-    git(dir, 'add', '--all');
-    git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Base');
-
-    for (const path of readFileSync(`${repository}fixtures/blog-pr/deleted`, 'utf8').split('\n').filter(Boolean)) {
-        rmSync(join(dir, path));
-    }
-
-    cpSync(`${repository}fixtures/blog-pr/head`, dir, { recursive: true });
-
-    return dir;
 }
 
 const edge = (edge) => `${edge.from} -> ${edge.to} ${edge.kind} @${edge.evidence[0].file}:${edge.evidence[0].line}`;

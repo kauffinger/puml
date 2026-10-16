@@ -19,8 +19,10 @@ viewer/      index.html, app.js (rendering and the side panel), model.js (levels
 fixtures/    shop: a small fixture app with a hand-written expected graph
              blog: a fixture with seeded rule violations and a module cycle, with hand-written expected/violations.json
              blog-pr: a pull request on blog (head/ laid over it, deleted lists removed files), with hand-written expected/diff.json
-tests/       golden, invariant, drill, cycle, edge-budget and rule tests on the JSON contract (node --test)
+tests/       golden, invariant, drill, cycle, edge-budget, rule, diff and action tests (node --test)
 verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
+action/      the GitHub Action's scripts: install.sh downloads a release, report.sh runs `diff` and comments
+action.yml   the GitHub Action
 assets/      the icon and the README screenshots
 ```
 
@@ -225,16 +227,22 @@ shot edge    'level=1&from=App%5CJobs&to=App%5CHttp'
 CI (`.github/workflows/ci.yml`) builds the extractor and runs `cargo test` and `pnpm test` on every
 push and pull request. It has no corpora, so the laravel.io and framework invariants are skipped there.
 
-To release, bump `version` in `extractor/Cargo.toml`, commit, and push a matching tag:
+To release, bump `version` in `extractor/Cargo.toml` and the `version` input's default in `action.yml`,
+commit, and push a matching tag:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
-`.github/workflows/release.yml` fails if the tag and the crate version differ, builds the four binaries
-and publishes a GitHub release with the archives, `SHA256SUMS` and generated notes. Update `VERSION` in
-the README's install instructions with each release.
+`.github/workflows/release.yml` fails if the tag differs from the crate version or from the action's
+default, builds the four binaries and publishes a GitHub release with the archives, `SHA256SUMS` and
+generated notes. Update `VERSION` in the README's install instructions and the action's tag in its
+workflow example with each release.
+
+The action downloads the release named by its `version` input, so a tag of this repository and the
+binary it uses always match. `tests/action.test.js` runs `action/report.sh` against the blog pull
+request with a stand-in for `gh`.
 
 ## Dependencies
 

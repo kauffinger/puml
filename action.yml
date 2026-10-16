@@ -1,0 +1,56 @@
+name: puml diff
+description: Comment on a pull request with what it changes in the architecture of a Laravel app.
+author: kauffinger
+
+branding:
+  icon: git-pull-request
+  color: purple
+
+inputs:
+  base:
+    description: The commit or branch to compare with. Defaults to the base of the pull request.
+    default: ${{ github.event.pull_request.base.sha }}
+  working-directory:
+    description: The directory that holds composer.json.
+    default: .
+  comment:
+    description: Post the report as a comment on the pull request, and keep updating that one comment.
+    default: 'true'
+  strict:
+    description: Fail when the pull request adds a rule violation, adds a module to a cycle, or leaves a removed class in use.
+    default: 'false'
+  version:
+    description: The puml-extract release to use.
+    default: v0.3.0
+  github-token:
+    description: The token used to comment. It needs pull-requests write permission.
+    default: ${{ github.token }}
+
+outputs:
+  worsens:
+    description: '"true" when the pull request makes the architecture worse, as --strict judges it.'
+    value: ${{ steps.report.outputs.worsens }}
+  report:
+    description: The path of the Markdown report.
+    value: ${{ steps.report.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install puml-extract
+      shell: bash
+      env:
+        PUML_VERSION: ${{ inputs.version }}
+      run: '"$GITHUB_ACTION_PATH/action/install.sh"'
+
+    - name: Compare the architecture with the base
+      id: report
+      shell: bash
+      env:
+        PUML_BASE: ${{ inputs.base }}
+        PUML_DIRECTORY: ${{ inputs.working-directory }}
+        PUML_COMMENT: ${{ inputs.comment }}
+        PUML_STRICT: ${{ inputs.strict }}
+        PULL_REQUEST: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: '"$GITHUB_ACTION_PATH/action/report.sh"'
