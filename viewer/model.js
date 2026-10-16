@@ -519,9 +519,14 @@ function enforceBudget(nodes, edges, budget, protect) {
     return { nodes: sortById([...kept, other]), edges: sortById([...rerouted.values()]), merged: merged.map((node) => node.id) };
 }
 
-export function visibleEdges(edges, budget = DEFAULT_EDGE_BUDGET) {
+export function visibleEdges(edges, budget = DEFAULT_EDGE_BUDGET, { cyclesFirst = true } = {}) {
+    const flag = (edge, key) => Number(Boolean(edge[key]));
     const heaviestFirst = [...edges].sort(
-        (a, b) => Number(Boolean(b.cycle)) - Number(Boolean(a.cycle)) || b.weight - a.weight || a.id.localeCompare(b.id),
+        (a, b) =>
+            flag(b, 'violations') - flag(a, 'violations') ||
+            (cyclesFirst ? flag(b, 'cycle') - flag(a, 'cycle') : 0) ||
+            b.weight - a.weight ||
+            a.id.localeCompare(b.id),
     );
     const shown = new Set();
     const covered = new Set();

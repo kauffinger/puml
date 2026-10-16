@@ -23,7 +23,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.1.0
+VERSION=v0.2.0
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -132,7 +132,7 @@ puml-extract show path/to/app 'App\Jobs' 'App\Http'   # one arrow, with every fi
 An excerpt of `report` on laravel.io:
 
 ```
-puml report: laravelio/laravel.io (216 classes, 1149 edges, puml-extract 0.1.0 (mago 1.54.0))
+puml report: laravelio/laravel.io (216 classes, 1149 edges, puml-extract 0.2.0 (mago 1.54.0))
 verdict: 7 rule violations, 2 module cycles, 9 fan-out outliers
 
 RULES  (one line per class edge that breaks a rule)

@@ -1,0 +1,303 @@
+[
+ {
+  "name": "q01-modules",
+  "url": "laravelio.html",
+  "steps": [],
+  "expect": [
+   "App\\Http",
+   "46 classes",
+   "App\\Jobs",
+   "42 classes",
+   "App\\Filament",
+   "18 classes"
+  ]
+ },
+ {
+  "name": "q02-entry-layer",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\\\\Http\")",
+   "ui.click(\"App\\\\Livewire\")",
+   "ui.click(\"App\\\\Filament\")",
+   "ui.click(\"App\\\\View\")",
+   "ui.click(\"App\\\\Models\")"
+  ],
+  "expect": [
+   "layer http",
+   "Used by"
+  ]
+ },
+ {
+  "name": "q03-create-thread",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.search('App\\\\Http\\\\Controllers\\\\Forum\\\\ThreadsController')",
+   "ui.dblclick('CreateThread')"
+  ],
+  "expect": [
+   "store(",
+   "CreateThread",
+   "ThreadRequest",
+   "Thread",
+   "new"
+  ]
+ },
+ {
+  "name": "q04-violations",
+  "url": "laravelio.html",
+  "steps": [],
+  "expect": [
+   "core-independent-of-http",
+   "CreateArticle \u2192 ArticleRequest",
+   "CreateReply \u2192 CreateReplyRequest",
+   "CreateThread \u2192 ThreadRequest",
+   "RegisterUser \u2192 RegisterRequest",
+   "UpdateArticle \u2192 ArticleRequest",
+   "UpdateProfile \u2192 UpdateProfileRequest",
+   "UpdateThread \u2192 ThreadRequest"
+  ]
+ },
+ {
+  "name": "q05-worst-violation",
+  "url": "laravelio.html",
+  "steps": [],
+  "expect": [
+   "App\\Jobs \u2192 App\\Http",
+   "fixes 7 rule violations"
+  ]
+ },
+ {
+  "name": "q06-cycles",
+  "url": "laravelio.html",
+  "steps": [],
+  "expect": [
+   "App\\Actions, App\\Filament, App\\Http, App\\Jobs, App\\Providers",
+   "App\\Enums, App\\Exceptions, App\\Mail, App\\Models, App\\Notifications, App\\Policies"
+  ]
+ },
+ {
+  "name": "q07-cheapest-cut",
+  "url": "laravelio.html",
+  "steps": [],
+  "expect": [
+   "7 class edges in 7 files"
+  ]
+ },
+ {
+  "name": "q08-riskiest",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\")",
+   "ui.click(\"App\\\\Actions\")",
+   "ui.click(\"App\\\\Concerns\")",
+   "ui.click(\"App\\\\Console\")",
+   "ui.click(\"App\\\\Contracts\")",
+   "ui.click(\"App\\\\Enums\")",
+   "ui.click(\"App\\\\Events\")",
+   "ui.click(\"App\\\\Exceptions\")",
+   "ui.click(\"App\\\\Filament\")",
+   "ui.click(\"App\\\\Http\")",
+   "ui.click(\"App\\\\Jobs\")",
+   "ui.click(\"App\\\\Listeners\")",
+   "ui.click(\"App\\\\Livewire\")",
+   "ui.click(\"App\\\\Mail\")",
+   "ui.click(\"App\\\\Markdown\")",
+   "ui.click(\"App\\\\Models\")",
+   "ui.click(\"App\\\\Notifications\")",
+   "ui.click(\"App\\\\Observers\")",
+   "ui.click(\"App\\\\Policies\")",
+   "ui.click(\"App\\\\Providers\")",
+   "ui.click(\"App\\\\Queries\")",
+   "ui.click(\"App\\\\Rules\")",
+   "ui.click(\"App\\\\Social\")",
+   "ui.click(\"App\\\\View\")",
+   "ui.click(\"Database\\\\Factories\")",
+   "ui.click(\"Database\\\\Seeders\")"
+  ],
+  "expect": [
+   "Ca 133"
+  ]
+ },
+ {
+  "name": "q09-busiest",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\")",
+   "ui.click(\"App\\\\Actions\")",
+   "ui.click(\"App\\\\Concerns\")",
+   "ui.click(\"App\\\\Console\")",
+   "ui.click(\"App\\\\Contracts\")",
+   "ui.click(\"App\\\\Enums\")",
+   "ui.click(\"App\\\\Events\")",
+   "ui.click(\"App\\\\Exceptions\")",
+   "ui.click(\"App\\\\Filament\")",
+   "ui.click(\"App\\\\Http\")",
+   "ui.click(\"App\\\\Jobs\")",
+   "ui.click(\"App\\\\Listeners\")",
+   "ui.click(\"App\\\\Livewire\")",
+   "ui.click(\"App\\\\Mail\")",
+   "ui.click(\"App\\\\Markdown\")",
+   "ui.click(\"App\\\\Models\")",
+   "ui.click(\"App\\\\Notifications\")",
+   "ui.click(\"App\\\\Observers\")",
+   "ui.click(\"App\\\\Policies\")",
+   "ui.click(\"App\\\\Providers\")",
+   "ui.click(\"App\\\\Queries\")",
+   "ui.click(\"App\\\\Rules\")",
+   "ui.click(\"App\\\\Social\")",
+   "ui.click(\"App\\\\View\")",
+   "ui.click(\"Database\\\\Factories\")",
+   "ui.click(\"Database\\\\Seeders\")",
+   "ui.search('App\\\\Http\\\\Controllers\\\\Forum\\\\ThreadsController')",
+   "ui.click('ThreadsController')"
+  ],
+  "expect": [
+   "Ce 56",
+   "fan-out 17"
+  ]
+ },
+ {
+  "name": "q10-start-reading",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\")",
+   "ui.click(\"App\\\\Actions\")",
+   "ui.click(\"App\\\\Concerns\")",
+   "ui.click(\"App\\\\Console\")",
+   "ui.click(\"App\\\\Contracts\")",
+   "ui.click(\"App\\\\Enums\")",
+   "ui.click(\"App\\\\Events\")",
+   "ui.click(\"App\\\\Exceptions\")",
+   "ui.click(\"App\\\\Filament\")",
+   "ui.click(\"App\\\\Http\")",
+   "ui.click(\"App\\\\Jobs\")",
+   "ui.click(\"App\\\\Listeners\")",
+   "ui.click(\"App\\\\Livewire\")",
+   "ui.click(\"App\\\\Mail\")",
+   "ui.click(\"App\\\\Markdown\")",
+   "ui.click(\"App\\\\Models\")",
+   "ui.click(\"App\\\\Notifications\")",
+   "ui.click(\"App\\\\Observers\")",
+   "ui.click(\"App\\\\Policies\")",
+   "ui.click(\"App\\\\Providers\")",
+   "ui.click(\"App\\\\Queries\")",
+   "ui.click(\"App\\\\Rules\")",
+   "ui.click(\"App\\\\Social\")",
+   "ui.click(\"App\\\\View\")",
+   "ui.click(\"Database\\\\Factories\")",
+   "ui.click(\"Database\\\\Seeders\")"
+  ],
+  "expect": [
+   "Ca 133"
+  ]
+ },
+ {
+  "name": "q11-events-listeners",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\\\\Events\")"
+  ],
+  "expect": [
+   "Used by",
+   "App\\Listeners"
+  ]
+ },
+ {
+  "name": "q12-leaves",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\")",
+   "ui.click(\"App\\\\Actions\")",
+   "ui.click(\"App\\\\Concerns\")",
+   "ui.click(\"App\\\\Console\")",
+   "ui.click(\"App\\\\Contracts\")",
+   "ui.click(\"App\\\\Enums\")",
+   "ui.click(\"App\\\\Events\")",
+   "ui.click(\"App\\\\Exceptions\")",
+   "ui.click(\"App\\\\Filament\")",
+   "ui.click(\"App\\\\Http\")",
+   "ui.click(\"App\\\\Jobs\")",
+   "ui.click(\"App\\\\Listeners\")",
+   "ui.click(\"App\\\\Livewire\")",
+   "ui.click(\"App\\\\Mail\")",
+   "ui.click(\"App\\\\Markdown\")",
+   "ui.click(\"App\\\\Models\")",
+   "ui.click(\"App\\\\Notifications\")",
+   "ui.click(\"App\\\\Observers\")",
+   "ui.click(\"App\\\\Policies\")",
+   "ui.click(\"App\\\\Providers\")",
+   "ui.click(\"App\\\\Queries\")",
+   "ui.click(\"App\\\\Rules\")",
+   "ui.click(\"App\\\\Social\")",
+   "ui.click(\"App\\\\View\")",
+   "ui.click(\"Database\\\\Factories\")",
+   "ui.click(\"Database\\\\Seeders\")"
+  ],
+  "expect": [
+   "Ca 0"
+  ]
+ },
+ {
+  "name": "view-laravelio-level1",
+  "url": "laravelio.html",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "view-laravelio-http",
+  "url": "laravelio.html#level=2&focus=App%5CHttp",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "view-laravelio-controllers",
+  "url": "laravelio.html#level=2&focus=App%5CHttp%5CControllers",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "view-laravelio-edge",
+  "url": "laravelio.html#level=2&focus=App%5CHttp&from=App%5CHttp%5CControllers&to=App%5CModels",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "view-framework-level1",
+  "url": "framework.html",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "view-framework-eloquent",
+  "url": "framework.html#level=2&focus=Illuminate%5CDatabase%5CEloquent",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "view-framework-edge",
+  "url": "framework.html#level=2&focus=Illuminate%5CDatabase%5CEloquent&from=Illuminate%5CDatabase%5CEloquent%5CRelations&to=Illuminate%5CDatabase%5CEloquent%5CModel",
+  "steps": [],
+  "expect": []
+ },
+ {
+  "name": "check-select-dims",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.click(\"App\\\\Models\")"
+  ],
+  "expect": [
+   "App\\Models"
+  ]
+ },
+ {
+  "name": "check-drill-and-up",
+  "url": "laravelio.html",
+  "steps": [
+   "ui.dblclick('App\\\\Http')",
+   "ui.key('Escape')"
+  ],
+  "expect": [
+   "Modules: All modules"
+  ]
+ }
+]

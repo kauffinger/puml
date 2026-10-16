@@ -5,7 +5,13 @@ const CONTENTS_LIMIT = 4;
 const TOOLTIP_PAIRS = 12;
 const LINE_LIMIT = 72;
 const EVIDENCE_LIMIT = 400;
+const BUSIEST_LIMIT = 5;
 const LEGIBLE_SCALE = 0.8;
+const MINIMUM_SCALE = 1;
+const MODULE_EDGE_BUDGET = 30;
+const LAYER_ORDER = ['http', 'console', 'providers', 'core', 'database', 'tests'];
+
+const HOW_TO = 'Click a node or edge to select it, double-click to open it. Esc goes up.';
 
 const LEVEL_NAMES = { 1: 'Modules', 2: 'Classes', 3: 'UML' };
 
@@ -16,6 +22,7 @@ let index;
 let viz;
 let current = null;
 let cameFrom = null;
+let layerById = null;
 const timings = [];
 
 try {
@@ -71,9 +78,9 @@ function readView() {
     return {
         level: Math.min(Math.max(level, 1), 3),
         focus: level > 1 ? params.get('focus') || null : null,
-        vendor: params.get('vendor') !== '0',
+        vendor: params.has('vendor') ? params.get('vendor') !== '0' : null,
         budget: Number(params.get('budget')) || null,
-        edgeBudget: params.get('edges') === 'all' ? Infinity : Number(params.get('edges')) || DEFAULT_EDGE_BUDGET,
+        edgeBudget: params.get('edges') === 'all' ? Infinity : Number(params.get('edges')) || null,
         kinds: params.get('kinds') ? params.get('kinds').split(',').filter(Boolean) : EDGE_KINDS,
         edge: params.has('from') && params.has('to') ? { from: params.get('from'), to: params.get('to') } : null,
     };
@@ -95,15 +102,15 @@ function navigate(changes) {
         params.set('to', view.edge.to);
     }
 
-    if (!view.vendor) {
-        params.set('vendor', '0');
+    if (view.vendor !== null) {
+        params.set('vendor', view.vendor ? '1' : '0');
     }
 
     if (view.budget) {
         params.set('budget', view.budget);
     }
 
-    if (view.edgeBudget !== DEFAULT_EDGE_BUDGET) {
+    if (view.edgeBudget) {
         params.set('edges', view.edgeBudget === Infinity ? 'all' : view.edgeBudget);
     }
 
@@ -120,10 +127,15 @@ function render() {
     timings.push(timing);
 }
 
-function renderView(view) {
+function renderView(requested) {
     const started = performance.now();
+    const view = {
+        ...requested,
+        vendor: requested.vendor ?? requested.level > 1,
+        edgeBudget: requested.edgeBudget ?? (requested.level === 1 && !requested.edge ? MODULE_EDGE_BUDGET : DEFAULT_EDGE_BUDGET),
+    };
     const projection = project(index, view);
-    const edges = visibleEdges(projection.edges, view.edgeBudget);
+    const edges = visibleEdges(projection.edges, view.edgeBudget, { cyclesFirst: !banded(projection) });
     const projected = performance.now();
     const svg = layout(projection, edges.shown);
     const laidOut = performance.now();
@@ -146,7 +158,14 @@ function renderView(view) {
     };
 
     current = { view, projection, edges };
-    updateChrome(view, projection, edges, timing);
+    const cropped = fitScale(svg) < MINIMUM_SCALE;
+
+    updateChrome(view, projection, edges, timing, cropped);
+
+    if (cropped) {
+        zoomTo(svg, MINIMUM_SCALE);
+    }
+
     showSummary(projection, edges);
 
     const previous = projection.nodes.find((node) => node.id === cameFrom);
@@ -196,7 +215,7 @@ function layout(projection, edges) {
     const sideways = viz.renderSVGElement(toDot(projection, edges, preferred === 'LR' ? 'TB' : 'LR'));
     const best = fitScale(sideways) > fitScale(layered) ? sideways : layered;
 
-    if (fitScale(best) >= LEGIBLE_SCALE) {
+    if (fitScale(best) >= LEGIBLE_SCALE || banded(projection)) {
         return best;
     }
 
@@ -216,14 +235,29 @@ function toDot(projection, edges, rankdir, { layered = true } = {}) {
 
     const lines = [
         'digraph puml {',
-        `graph [rankdir=${rankdir}, nodesep=${rankdir === 'LR' ? 0.12 : 0.25}, ranksep=0.55, overlap=false, splines=true, sep="+6", bgcolor="transparent", fontname="Helvetica"];`,
+        `graph [rankdir=${rankdir}, ${spacing(projection, rankdir, layered)}, overlap=false, splines=true, sep="+6", bgcolor="transparent", fontname="Helvetica"];`,
         'node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#ffffff", color="#7b8794", margin="0.12,0.05"];',
-        'edge [fontname="Helvetica", fontsize=9, color="#9aa5b1", fontcolor="#52606d", arrowsize=0.7];',
+        'edge [fontname="Helvetica", fontsize=11, color="#9aa5b1", fontcolor="#52606d", arrowsize=0.7];',
     ];
 
     const declare = (node) => `${ids.get(node.id)} [id="${ids.get(node.id)}", ${nodeAttributes(node, projection, layered)}];`;
+    const banding = layered && banded(projection);
 
-    if (projection.edge && layered) {
+    if (banding) {
+        for (const band of [...LAYER_ORDER, 'vendor']) {
+            const members = projection.nodes.filter((node) => bandOf(node) === band);
+
+            if (members.length > 0) {
+                lines.push(
+                    `subgraph cluster_${band} { label=${dotString(band)}; labeljust=l; style="rounded"; color="#d9dee3"; fontcolor="#7b8794"; fontsize=11;`,
+                    ...members.map(declare),
+                    '}',
+                );
+            }
+        }
+
+        lines.push(...projection.nodes.filter((node) => !bandOf(node)).map(declare));
+    } else if (projection.edge && layered) {
         for (const side of ['from', 'to']) {
             lines.push(
                 `subgraph cluster_${side} { label=${dotString(projection.edge[side])}; style="rounded,dashed"; color="#1f6feb"; fontcolor="#1f6feb"; fontsize=11;`,
@@ -237,13 +271,35 @@ function toDot(projection, edges, rankdir, { layered = true } = {}) {
         lines.push(...projection.nodes.map(declare));
     }
 
+    const height = (id) => ({ vendor: 2, core: 1 })[bandOf(projection.nodes.find((node) => node.id === id))] ?? 0;
+
     edges.forEach((edge, position) => {
-        lines.push(`${ids.get(edge.from)} -> ${ids.get(edge.to)} [id="e${position}", ${edgeAttributes(edge, projection)}];`);
+        const upward = banding && height(edge.from) > height(edge.to) ? ', constraint=false' : '';
+
+        lines.push(`${ids.get(edge.from)} -> ${ids.get(edge.to)} [id="e${position}", ${edgeAttributes(edge, projection)}${upward}];`);
     });
 
     lines.push('}');
 
     return lines.join('\n');
+}
+
+function spacing(projection, rankdir, layered) {
+    if (layered && banded(projection)) {
+        return 'nodesep=0.1, ranksep=0.3';
+    }
+
+    return `nodesep=${rankdir === 'LR' ? 0.12 : 0.25}, ranksep=0.55`;
+}
+
+function banded(projection) {
+    return projection.level === 1 && !projection.edge && index.graph.verdict.layers.length > 0;
+}
+
+function bandOf(node) {
+    layerById ??= new Map(index.graph.verdict.layers.map((entry) => [entry.namespace, entry.layer]));
+
+    return layerById.get(node.id) ?? (node.kind === 'package' ? 'vendor' : null);
 }
 
 function nodeAttributes(node, projection, layered) {
@@ -283,7 +339,7 @@ function nodeAttributes(node, projection, layered) {
 
 function simpleLabel(node, cls, projection, layered) {
     const focus = projection.focus;
-    const small = (text) => (text ? `<BR/><FONT POINT-SIZE="8" COLOR="#52606d">${htmlLabel(text)}</FONT>` : '');
+    const small = (text) => (text ? `<BR/><FONT POINT-SIZE="11" COLOR="#52606d">${htmlLabel(text)}</FONT>` : '');
     const contents = layered && projection.level === 2 && !projection.edge && node.focus ? small(contentsPreview(node.id)) : '';
 
     switch (node.kind) {
@@ -349,7 +405,7 @@ function umlLabel(cls, node) {
 
     const operations = (cls.methods ?? []).map(formatMethod);
 
-    const header = `<TR><TD BGCOLOR="#e8f1fd" CELLPADDING="5">${stereotype(cls)}<B>${name}</B><BR/><FONT POINT-SIZE="8" COLOR="#52606d">${htmlLabel(cls.namespace)}</FONT></TD></TR>`;
+    const header = `<TR><TD BGCOLOR="#e8f1fd" CELLPADDING="5">${stereotype(cls)}<B>${name}</B><BR/><FONT POINT-SIZE="11" COLOR="#52606d">${htmlLabel(cls.namespace)}</FONT></TD></TR>`;
 
     return `<TABLE BORDER="${node.cycle ? 2 : 1}" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" COLOR="${color}" BGCOLOR="#ffffff">${header}${compartment(fields)}${compartment(operations)}</TABLE>`;
 }
@@ -363,7 +419,7 @@ function compartment(lines) {
 
     const text = shown.length === 0 ? ' ' : shown.map((line) => `${line}<BR ALIGN="LEFT"/>`).join('');
 
-    return `<TR><TD ALIGN="LEFT" BALIGN="LEFT" SIDES="T" BORDER="1"><FONT FACE="Menlo" POINT-SIZE="9">${text}</FONT></TD></TR>`;
+    return `<TR><TD ALIGN="LEFT" BALIGN="LEFT" SIDES="T" BORDER="1"><FONT FACE="Menlo" POINT-SIZE="11">${text}</FONT></TD></TR>`;
 }
 
 function stereotype(cls) {
@@ -371,7 +427,7 @@ function stereotype(cls) {
         return '';
     }
 
-    return `<FONT POINT-SIZE="8">«${cls.kind}»</FONT><BR/>`;
+    return `<FONT POINT-SIZE="11">«${cls.kind}»</FONT><BR/>`;
 }
 
 function edgeAttributes(edge, projection) {
@@ -493,6 +549,7 @@ function mount(svg, projection, edges) {
     canvas.replaceChildren(svg);
     enablePanZoom(svg);
 
+
     const targetOf = (event) => {
         const target = event.target.closest('g.node, g.edge');
 
@@ -531,6 +588,27 @@ function mount(svg, projection, edges) {
             openEdge(target.edge);
         }
     });
+
+}
+
+function zoomTo(svg, scale) {
+    const box = svg.viewBox.baseVal;
+    const width = svg.clientWidth / scale;
+    const height = svg.clientHeight / scale;
+
+    svg.dataset.bounds = [box.x, box.y, box.width, box.height].join(' ');
+    box.x += (box.width - width) / 2;
+    box.y += (box.height - height) / 2;
+    box.width = width;
+    box.height = height;
+}
+
+function showAll() {
+    const svg = canvas.querySelector('svg');
+
+    if (svg?.dataset.bounds) {
+        svg.setAttribute('viewBox', svg.dataset.bounds);
+    }
 }
 
 function selectNode(node) {
@@ -747,7 +825,7 @@ function centralClass(namespace) {
     return candidates.sort((a, b) => degree(b) - degree(a) || a.id.localeCompare(b.id))[0]?.id ?? null;
 }
 
-function updateChrome(view, projection, edges, timing) {
+function updateChrome(view, projection, edges, timing, cropped) {
     for (const button of document.querySelectorAll('#levels button')) {
         button.classList.toggle('active', Number(button.dataset.level) === projection.level);
     }
@@ -765,6 +843,7 @@ function updateChrome(view, projection, edges, timing) {
     }
 
     document.querySelector('#path a[data-up]')?.addEventListener('click', goUp);
+    document.querySelector('#stats a[data-show-all]')?.addEventListener('click', showAll);
 
     const over = projection.nodes.length > projection.budget;
     const broken = projection.edges.reduce((sum, edge) => sum + edge.violations, 0);
@@ -774,6 +853,7 @@ function updateChrome(view, projection, edges, timing) {
         `${edges.shown.length}/${projection.edges.length} edges drawn` +
         (projection.merged.length ? ` · ${projection.merged.length} merged into "other"` : '') +
         (broken ? ` · <span class="violation">✗ ${broken} rule violation${broken === 1 ? '' : 's'} in view</span>` : '') +
+        (cropped ? ` · <span title="Text is never drawn smaller than 11 px. Drag to pan, scroll to zoom.">part off-screen, <a data-show-all>show all</a></span>` : '') +
         ` · projection ${timing.project.toFixed(1)} ms, layout ${timing.layout.toFixed(1)} ms, ` +
         `total ${timing.total.toFixed(1)} ms`;
 }
@@ -887,18 +967,23 @@ function showSummary(projection, edges) {
         ? `The ${projection.edge.weight} class edges behind ${escapeHtml(projection.edge.from)} → ${escapeHtml(projection.edge.to)}, and the classes at both ends.`
         : rules[projection.level];
 
+    const overview = projection.level === 1 && !projection.edge;
+    const { summary, layers } = overview ? headline() : { summary: '', layers: '' };
     const cycles = projection.nodes.filter((node) => node.cycle);
     const unresolved = index.graph.unresolved;
 
     setPanel(
         `<h2>${LEVEL_NAMES[projection.level]}${projection.focus ? `: ${escapeHtml(projection.focus)}` : ''}</h2>` +
-            `<p class="muted">${rule} Click a node or edge to select it, double-click to open it. Esc goes up.</p>` +
+            (overview ? summary : `<p class="muted">${rule} ${HOW_TO}</p>`) +
             architecture(projection) +
-            `<h3>Cycles</h3>` +
-            (cycles.length
-                ? `<ul>${cycles.map((node) => `<li>${escapeHtml(node.id)}</li>`).join('')}</ul>`
-                : '<p class="muted">No dependency cycles in this view.</p>') +
-            (projection.level === 1 && !projection.edge ? moduleCycleList() : '') +
+            layers +
+            (overview
+                ? moduleCycleList()
+                : `<h3>Cycles</h3>` +
+                  (cycles.length
+                      ? `<ul>${cycles.map((node) => `<li>${escapeHtml(node.id)}</li>`).join('')}</ul>`
+                      : '<p class="muted">No dependency cycles in this view.</p>')) +
+            (overview ? busiestClasses() + moduleTable() + `<p class="muted">${rule} ${HOW_TO}</p>` : '') +
             hiddenEdges(edges.hidden) +
             (projection.level === 3 && index.classes.get(projection.focus) ? classDetails(index.classes.get(projection.focus)) : '') +
             `<h3>Graph</h3><p class="muted">${index.graph.generator}<br>${index.graph.stats.classes} classes, ` +
@@ -942,18 +1027,32 @@ function architecture(projection) {
     const sections = [...byRule]
         .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
         .map(([rule, hits]) => {
-            const rows = hits
-                .sort((a, b) => a.underlying.from.localeCompare(b.underlying.from) || a.underlying.to.localeCompare(b.underlying.to))
-                .map(({ underlying, edge }) => `<li>${violationRow(underlying)} <a data-edge="${projection.edges.indexOf(edge)}" class="muted">select edge</a></li>`);
+            const byEdge = new Map();
 
-            return `<details open><summary><span class="violation">✗ ${hits.length}</span> ${escapeHtml(rule)}</summary><p class="muted">${escapeHtml(rules.find((candidate) => candidate.id === rule).why)}</p><ul class="evidence">${rows.join('')}</ul></details>`;
+            for (const { underlying, edge } of hits) {
+                byEdge.set(edge, [...(byEdge.get(edge) ?? []), underlying]);
+            }
+
+            const groups = [...byEdge]
+                .sort((a, b) => b[1].length - a[1].length)
+                .map(([edge, underlying]) => {
+                    const rows = underlying
+                        .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
+                        .map((violating) => `<li>${violationRow(violating)}</li>`);
+
+                    return `<li><a data-edge="${projection.edges.indexOf(edge)}"><code>${escapeHtml(edge.from)} → ${escapeHtml(edge.to)}</code></a> <span class="violation">✗${underlying.length}</span><ul class="evidence">${rows.join('')}</ul></li>`;
+                });
+
+            return `<details open><summary><span class="violation">✗ ${hits.length}</span> ${escapeHtml(rule)}</summary><p class="muted">${escapeHtml(rules.find((candidate) => candidate.id === rule).why)}</p><ul>${groups.join('')}</ul></details>`;
         });
 
     return `<h3>Rules</h3><p><span class="violation">✗ ${total} class edge${total === 1 ? '' : 's'}</span> break${total === 1 ? 's' : ''} an architecture rule ${scope}. Violating edges are drawn in purple.</p>${sections.join('')}`;
 }
 
 function violationRow(edge) {
-    const via = edge.label ? ` <span class="muted">via ${escapeHtml(edge.label)}</span>` : '';
+    const own = `${index.classes.get(edge.from).name}::`;
+    const label = edge.label?.startsWith(own) ? edge.label.slice(own.length) : edge.label;
+    const via = label ? ` <span class="muted">via ${escapeHtml(label)}</span>` : '';
     const places = edge.evidence.map((place) => sourceLink(place.file, place.line)).join(' ');
 
     return `${classLink(edge.from, index.classes.get(edge.from).name)} → ${classLink(edge.to, index.classes.get(edge.to).name)} <span class="muted">${edge.kind}</span>${via} ${places}`;
@@ -988,8 +1087,7 @@ function moduleCycleList() {
                 return `${namespaceLink(into)} owns ${count(names.length, kind)} from ${namespaceLink(module)}${listed}`;
             });
 
-            lines.push(`<span class="muted">Parts of another module, counted there (a trait, interface or abstract class used by one other module only):</span>`);
-            lines.push(`<ul class="evidence">${parts.map((part) => `<li>${part}</li>`).join('')}</ul>`);
+            lines.push(`<details><summary class="muted" title="A trait, interface or abstract class used by one other module only">Parts of another module, counted there</summary><ul class="evidence">${parts.map((part) => `<li>${part}</li>`).join('')}</ul></details>`);
 
             if (cycle.remaining.length < cycle.modules.length) {
                 lines.push(`<span class="muted">Counted that way, still in a cycle:</span> ${cycle.remaining.map((id) => namespaceLink(id)).join(', ')}`);
@@ -1007,7 +1105,9 @@ function moduleCycleList() {
                 underlying.push(`<li class="muted">… ${edge.edges.length - 10} more</li>`);
             }
 
-            return `<li>${namespaceLink(edge.from)} → ${namespaceLink(edge.to)} <span class="muted">${edge.weight}</span>${underlying.length ? `<ul class="evidence">${underlying.join('')}</ul>` : ''}</li>`;
+            const label = `${namespaceLink(edge.from)} → ${namespaceLink(edge.to)} <span class="muted">${edge.weight}</span>`;
+
+            return `<li>${underlying.length ? `<details><summary>${label}</summary><ul class="evidence">${underlying.join('')}</ul></details>` : label}</li>`;
         });
 
         if (shown.length < cycle.cut.length) {
@@ -1021,6 +1121,73 @@ function moduleCycleList() {
     });
 
     return `<details open><summary>${cycles.length} module cycle${cycles.length === 1 ? '' : 's'} among app modules</summary><p class="muted">${escapeHtml(cycleRule.why)}</p><ul>${items.join('')}</ul></details>`;
+}
+
+function headline() {
+    const { rules_apply: rulesApply, rules, violations, cycles, modules, layers } = index.graph.verdict;
+    const plural = (number, noun) => `${number} ${noun}${number === 1 ? '' : 's'}`;
+    const present = LAYER_ORDER.filter((layer) => layers.some((entry) => entry.layer === layer));
+
+    const parts = [
+        rulesApply
+            ? violations.length
+                ? `<span class="violation">✗ ${plural(violations.length, 'rule violation')}</span>`
+                : 'no rule violations'
+            : 'rules not checked',
+        cycles.length ? `<span class="warn">${plural(cycles.length, 'module cycle')}</span>` : 'no module cycles',
+        `${plural(modules.length, 'app module')} in ${plural(present.length, 'layer')}`,
+    ];
+
+    const bands = present.map((layer) => {
+        const members = layers.filter((entry) => entry.layer === layer).map((entry) => namespaceLink(entry.namespace));
+
+        return `<li class="layer"><span class="kind">${layer}</span>${members.join(' ')}</li>`;
+    });
+
+    const forbidden = rules.map((rule) => `<span title="${escapeHtml(rule.why)}">${escapeHtml(rule.from.replace('segment:', ''))} ↛ ${escapeHtml(rule.to.replace('segment:', ''))}</span>`);
+
+    return {
+        summary: `<p><b>${parts.join(' · ')}</b></p>`,
+        layers: `<h3>Layers</h3><ul>${bands.join('')}</ul>` + (rulesApply ? `<p class="muted">Forbidden: ${forbidden.join(' · ')}</p>` : ''),
+    };
+}
+
+function moduleTable() {
+    const { modules } = index.graph.verdict;
+    const layerOf = new Map(index.graph.verdict.layers.map((entry) => [entry.namespace, entry.layer]));
+    const sorted = [...modules].sort((a, b) => b.afferent - a.afferent || b.efferent - a.efferent || a.id.localeCompare(b.id));
+    const leaves = sorted.filter((module) => module.afferent === 0);
+
+    const rows = sorted.map(
+        (module) =>
+            `<tr><td>${namespaceLink(module.id)}${module.cycle ? ` <span class="warn" title="in module cycle ${module.cycle}">⟳${module.cycle}</span>` : ''}</td>` +
+            `<td>${layerOf.get(module.id)}</td><td>${module.classes}</td><td>${module.afferent}</td><td>${module.efferent}</td></tr>`,
+    );
+
+    return (
+        `<h3>Modules by Ca</h3>` +
+        `<p class="muted">Ca: classes in other app modules that use this one, the riskiest to change first. Ce: classes of other app modules it uses. ⟳ marks a module cycle.</p>` +
+        (leaves.length ? `<p><span class="muted">Nothing in the app depends on (Ca 0):</span> ${leaves.map((module) => namespaceLink(module.id)).join(' ')}</p>` : '') +
+        `<table class="metrics"><thead><tr><th>module</th><th>layer</th><th>classes</th><th>Ca</th><th>Ce</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+    );
+}
+
+function busiestClasses() {
+    const { classes, threshold } = index.graph.verdict.outliers;
+
+    if (classes.length === 0) {
+        return '';
+    }
+
+    const rows = classes.map((entry) => `<li>${classLink(entry.id, entry.id)} <span class="muted">fan-out</span> ${entry.fan_out}</li>`);
+    const rest = rows.slice(BUSIEST_LIMIT);
+
+    return (
+        `<h3>Busiest classes</h3>` +
+        `<p class="muted">Fan-out: app classes outside its own module that a class uses. Listed above ${threshold.toFixed(1)}, busiest first.</p>` +
+        `<ul>${rows.slice(0, BUSIEST_LIMIT).join('')}</ul>` +
+        (rest.length ? `<details><summary>${rest.length} more</summary><ul>${rest.join('')}</ul></details>` : '')
+    );
 }
 
 let metricsById = null;
@@ -1059,6 +1226,7 @@ function metricsLine(node) {
         `Ca ${metrics.afferent} · Ce ${metrics.efferent} · I ${number(metrics.instability)} · A ${number(metrics.abstractness)} · D ${number(metrics.distance)} · ` +
         `${metrics.vendor} vendor class${metrics.vendor === 1 ? '' : 'es'}` +
         (metrics.cycle ? ` · <span class="warn">in module cycle ${metrics.cycle}</span>` : '') +
+        (metrics.busiest ? `<br>busiest class ${classLink(metrics.busiest.id, index.classes.get(metrics.busiest.id).name)}, fan-out ${metrics.busiest.fan_out}` : '') +
         '</p>'
     );
 }

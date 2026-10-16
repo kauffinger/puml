@@ -1,0 +1,192 @@
+[
+    {
+        "name": "q01-modules",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "26 app modules",
+            "App\\Http ⟳2 http 46",
+            "App\\Jobs ⟳2 core 42",
+            "App\\Filament ⟳2 http 18",
+            "App\\Models ⟳1 core 7"
+        ]
+    },
+    {
+        "name": "q02-entry-layer",
+        "url": "laravelio.html",
+        "steps": [
+            "ui.click(\"App\\\\Models\")"
+        ],
+        "expect": [
+            "http App\\Filament App\\Http App\\Livewire App\\View",
+            "Depends on",
+            "Used by",
+            "App\\Http 38"
+        ]
+    },
+    {
+        "name": "q03-create-thread",
+        "url": "laravelio.html",
+        "steps": [
+            "ui.search('App\\\\Http\\\\Controllers\\\\Forum\\\\ThreadsController')",
+            "ui.dblclick('CreateThread')"
+        ],
+        "expect": [
+            "store(",
+            "CreateThread",
+            "ThreadRequest",
+            "Thread",
+            "new"
+        ]
+    },
+    {
+        "name": "q04-violations",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "core-independent-of-http",
+            "CreateArticle → ArticleRequest",
+            "CreateReply → CreateReplyRequest",
+            "CreateThread → ThreadRequest",
+            "RegisterUser → RegisterRequest",
+            "UpdateArticle → ArticleRequest",
+            "UpdateProfile → UpdateProfileRequest",
+            "UpdateThread → ThreadRequest"
+        ]
+    },
+    {
+        "name": "q05-worst-violation",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "App\\Jobs → App\\Http",
+            "fixes 7 rule violations"
+        ]
+    },
+    {
+        "name": "q06-cycles",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "App\\Actions, App\\Filament, App\\Http, App\\Jobs, App\\Providers",
+            "App\\Enums, App\\Exceptions, App\\Mail, App\\Models, App\\Notifications, App\\Policies"
+        ]
+    },
+    {
+        "name": "q07-cheapest-cut",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "7 class edges in 7 files"
+        ]
+    },
+    {
+        "name": "q08-riskiest",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "Modules by Ca",
+            "App\\Models ⟳1 core 7 133 17"
+        ]
+    },
+    {
+        "name": "q09-busiest",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "App\\Http ⟳2 http 46 8 56",
+            "App\\Http\\Controllers\\Forum\\ThreadsController fan-out 17"
+        ]
+    },
+    {
+        "name": "q10-start-reading",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "App\\Models ⟳1 core 7 133",
+            "App\\Models\\Thread fan-out 15"
+        ]
+    },
+    {
+        "name": "q11-events-listeners",
+        "url": "laravelio.html",
+        "steps": [
+            "ui.click(\"App\\\\Events\")"
+        ],
+        "expect": [
+            "Used by",
+            "App\\Listeners"
+        ]
+    },
+    {
+        "name": "q12-leaves",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": [
+            "Nothing in the app depends on (Ca 0): App\\Livewire App\\Listeners Database\\Seeders Database\\Factories App\\Markdown App\\Queries App\\Console App\\View"
+        ]
+    },
+    {
+        "name": "view-laravelio-level1",
+        "url": "laravelio.html",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "view-laravelio-http",
+        "url": "laravelio.html#level=2&focus=App%5CHttp",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "view-laravelio-controllers",
+        "url": "laravelio.html#level=2&focus=App%5CHttp%5CControllers",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "view-laravelio-edge",
+        "url": "laravelio.html#level=2&focus=App%5CHttp&from=App%5CHttp%5CControllers&to=App%5CModels",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "view-framework-level1",
+        "url": "framework.html",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "view-framework-eloquent",
+        "url": "framework.html#level=2&focus=Illuminate%5CDatabase%5CEloquent",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "view-framework-edge",
+        "url": "framework.html#level=2&focus=Illuminate%5CDatabase%5CEloquent&from=Illuminate%5CDatabase%5CEloquent%5CRelations&to=Illuminate%5CDatabase%5CEloquent%5CModel",
+        "steps": [],
+        "expect": []
+    },
+    {
+        "name": "check-select-dims",
+        "url": "laravelio.html",
+        "steps": [
+            "ui.click(\"App\\\\Models\")"
+        ],
+        "expect": [
+            "App\\Models"
+        ]
+    },
+    {
+        "name": "check-drill-and-up",
+        "url": "laravelio.html",
+        "steps": [
+            "ui.dblclick('App\\\\Http')",
+            "ui.key('Escape')"
+        ],
+        "expect": [
+            "Modules: All modules"
+        ]
+    }
+]

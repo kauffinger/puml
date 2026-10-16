@@ -51,3 +51,21 @@ test('shown and hidden partition the edges', () => {
     assert.equal(shown.length + hidden.length, edges.length);
     assert.equal(new Set([...shown, ...hidden]).size, edges.length);
 });
+
+test('edges that break a rule come before cycle edges and heavier edges', () => {
+    const edges = [edge('a', 'b', 9, true), { ...edge('b', 'a', 1), violations: 1 }];
+
+    const { shown, hidden } = visibleEdges(edges, 1);
+
+    assert.deepEqual(ids(shown), ['b->a']);
+    assert.deepEqual(ids(hidden), ['a->b']);
+});
+
+test('without cycles first, the heaviest edges win over cycle edges', () => {
+    const edges = [edge('a', 'b', 9), edge('b', 'c', 8), edge('c', 'b', 1, true), edge('a', 'c', 1, true), edge('c', 'a', 1, true)];
+
+    const { shown, hidden } = visibleEdges(edges, 3, { cyclesFirst: false });
+
+    assert.deepEqual(ids(shown), ['a->b', 'a->c', 'b->c']);
+    assert.deepEqual(ids(hidden), ['c->a', 'c->b']);
+});

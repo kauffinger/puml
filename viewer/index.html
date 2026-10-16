@@ -33,6 +33,7 @@
     aside h3 { font-size: 12px; margin: 12px 0 4px; color: #52606d; text-transform: uppercase; letter-spacing: .04em; }
     aside ul { list-style: none; margin: 0; padding: 0; }
     aside li { padding: 2px 0; border-bottom: 1px solid #eef1f3; word-break: break-all; }
+    aside li.layer { word-break: normal; }
     aside code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
     aside a { color: #1f6feb; cursor: pointer; text-decoration: none; }
     aside .muted { color: #7b8794; }
@@ -40,6 +41,11 @@
     aside summary { cursor: pointer; }
     aside ul.evidence { margin: 2px 0 4px 14px; }
     aside ul.evidence li { border: 0; }
+    aside table.metrics { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    aside table.metrics th { text-align: left; font-weight: 600; color: #52606d; border-bottom: 1px solid #d9dee3; }
+    aside table.metrics td { padding: 1px 4px 1px 0; border-bottom: 1px solid #eef1f3; }
+    aside table.metrics td:first-child { word-break: break-all; }
+    aside table.metrics td:nth-child(n+3), aside table.metrics th:nth-child(n+3) { text-align: right; }
     #crumbs a { color: #1f6feb; cursor: pointer; }
 </style>
 </head>

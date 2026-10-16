@@ -1,0 +1,6 @@
+[
+ {"name":"s0-opening","url":"blog-seeded.html","steps":[],"expect":[]},
+ {"name":"s1-model-controller","url":"blog-seeded.html","steps":[],"expect":["User → ProfileController"]},
+ {"name":"s2-mail-notifications-cycle","url":"blog-seeded.html","steps":[],"expect":["App\\Mail, App\\Notifications"]},
+ {"name":"s3-job-form-request","url":"blog-seeded.html","steps":[],"expect":["DeletePost → DeletePostRequest"]}
+]
