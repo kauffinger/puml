@@ -126,8 +126,10 @@ describe('a pull request on the blog', () => {
 
         assert.match(text, /READ IN THIS ORDER/);
         assert.match(text, /removed public static function fromRequest\(StorePostRequest \$request\): self/);
-        assert.match(markdown, /```mermaid/);
-        assert.match(markdown, /`App\\Listeners\\NotifyAuthor` is still used by/);
+        assert.match(markdown, /^\| 🔴 1 new, 🟢 1 fixed \| 🔴 1 grew \| 🔴 1 \| 1 added, 3 modified, 1 renamed \|/m);
+        assert.match(markdown, /🔴 \*\*Removed but still used\*\* `NotifyAuthor` by `PostPublished`/);
+        assert.match(markdown, /### The classes it changes\n\n```mermaid\nflowchart LR/);
+        assert.match(markdown, /<summary><b>Read in this order<\/b>: 5 classes/);
     });
 
     test('fails on a base it cannot find', () => {

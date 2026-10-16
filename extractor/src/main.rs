@@ -1,6 +1,7 @@
 mod assemble;
 mod collect;
 mod diff;
+mod diff_markdown;
 mod diff_report;
 mod git;
 mod graph;

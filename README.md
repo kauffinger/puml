@@ -25,7 +25,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.3.1
+VERSION=v0.4.0
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -204,14 +204,18 @@ It tells a reviewer what a text diff does not:
 
 Uncommitted and untracked files count, so you can run it before you commit. Moved lines are not
 changes: a dependency is the same dependency wherever it sits in the file. `--strict` fails when the
-pull request adds a rule violation, adds a module to a cycle, or leaves a removed class in use. The
-Markdown adds a Mermaid diagram of the module edges that changed, which GitHub draws in the comment.
+pull request adds a rule violation, adds a module to a cycle, or leaves a removed class in use.
+
+The Markdown, for the pull request comment, is shorter: a verdict, a one-row scoreboard, one line per
+finding, and a Mermaid diagram of the classes the pull request changes and the dependencies they gained
+or lost, which GitHub draws. Above 40 classes the diagram shows the module edges instead. The reading
+order, the cycles, the users and the metrics are folded away underneath.
 
 An excerpt, for a pull request on `fixtures/blog` that moves a job from the request to a new data object
 and renames a listener:
 
 ```
-puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.3.1 (mago 1.54.0)
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.4.0 (mago 1.54.0)
 classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
 architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
 
@@ -260,7 +264,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: kauffinger/puml@v0.3.1
+      - uses: kauffinger/puml@v0.4.0
         with:
           strict: true
 ```

@@ -14,7 +14,8 @@ extractor/   puml-extract (Rust, links mago 1.54.0)
   src/report.rs     the text of `report` and `show`
   src/git.rs        the merge base, the changed files and their contents at the base
   src/diff.rs       the base graph, and what changed between it and the head
-  src/diff_report.rs  the text, Markdown and JSON of `diff`
+  src/diff_report.rs  the text and JSON of `diff`
+  src/diff_markdown.rs  the Markdown of `diff`, for the pull request comment
 viewer/      index.html, app.js (rendering and the side panel), model.js (levels, aggregation, budgets, cycles in a view)
 fixtures/    shop: a small fixture app with a hand-written expected graph
              blog: a fixture with seeded rule violations and a module cycle, with hand-written expected/violations.json
@@ -231,8 +232,8 @@ To release, bump `version` in `extractor/Cargo.toml` and the `version` input's d
 commit, and push a matching tag:
 
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 `.github/workflows/release.yml` fails if the tag differs from the crate version or from the action's

@@ -707,7 +707,7 @@ fn notes(other_files: &[ChangedFile]) -> Vec<String> {
     }
 
     if other_files.iter().any(|file| file.path == "composer.lock") {
-        notes.push("composer.lock changed: both graphs resolve vendor classes against the vendor/ directory on disk, which is the head's.".to_string());
+        notes.push("composer.lock changed: both graphs take their packages from the head, from vendor/ or else from its composer.lock.".to_string());
     }
 
     notes

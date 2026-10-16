@@ -79,7 +79,7 @@ describe('the GitHub Action', () => {
 
         assert.equal(result.status, 0, result.stderr);
         assert.match(result.output, /^worsens=true$/m);
-        assert.match(result.summary, /### Read in this order/);
+        assert.match(result.summary, /### The classes it changes/);
         assert.equal(result.calls.length, 2);
         assert.match(result.calls[1], /^api --method POST repos\/owner\/app\/issues\/12\/comments /);
         assert.ok(result.body.startsWith('<!-- puml-diff -->\n## puml:'));
