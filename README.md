@@ -2,285 +2,245 @@
 
 # puml
 
-A module and UML viewer for PHP and Laravel codebases that works at three levels of detail. A Rust
-extractor, `puml-extract`, uses [mago](https://github.com/carthage-software/mago)'s crates to turn a
-project into a versioned JSON graph. A static viewer then draws that graph with Graphviz (WASM) in the
-browser.
+See how your Laravel or PHP application is actually put together. puml reads your code, draws its
+modules, classes and dependencies in an interactive diagram you can drill into, and tells you where the
+architecture breaks the conventions a Laravel application is expected to follow.
 
-```
-extractor/   puml-extract (Rust, links mago 1.54.0)
-viewer/      index.html, app.js (rendering), model.js (levels, aggregation, cycles, budgets, rules, metrics)
-cli/         puml.js: the same verdict as text, for terminals and agents
-fixtures/    shop: a small fixture app with a hand-written expected graph
-             blog: a fixture with seeded rule violations and a module cycle, with hand-written expected/violations.json
-tests/       golden, invariant, drill, cycle, edge-budget and rule tests on the JSON contract (node --test)
-verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
-```
+![The modules of laravel.io, with the rule violations between App\Jobs and App\Http in purple and a module cycle in red](assets/screenshots/modules.png)
 
-## Usage
+- **One command, one file.** `puml-extract` scans a project in well under a second and writes a single
+  HTML file. Open it in any browser; nothing to install, no server, no PHP runtime needed.
+- **Three levels of detail.** Start with the modules, double-click into a namespace, end at the UML of a
+  single class.
+- **Every arrow has a source.** Each dependency lists the `file:line` it comes from, and can open there
+  in your editor.
+- **An architecture verdict.** Rule violations, dependency cycles with the cheapest way to break them,
+  and coupling metrics per module, in the viewer and in the terminal.
 
-Prebuilt `puml-extract` binaries for Linux (x86_64, aarch64, static musl) and macOS (Apple Silicon,
-Intel) are attached to every [GitHub release](https://github.com/kauffinger/puml/releases). To build it
-yourself:
+## Install
 
-```sh
-cargo build --release --manifest-path extractor/Cargo.toml
-extractor/target/release/puml-extract path/to/laravel-app --out out/app.json --html out/app.html
-open out/app.html
-```
-
-`--html` writes one self-contained file with the viewer and the graph embedded in it. `--dev` also
-scans the `autoload-dev` roots. While working on the viewer, serve the repository and open
-`viewer/index.html?graph=../out/app.json`. The viewer is compiled into the binary, so rebuild after you
-change it.
-
-The view state lives in the URL hash, for example `#level=2&focus=App%5CModels&budget=30&kinds=extends,relation`.
-
-## Architecture verdict without a browser
+Download the binary for your platform from the
+[latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-puml-extract report path/to/app                       # the whole verdict
-puml-extract show path/to/app 'App\Models'            # a module, namespace or class
-puml-extract show path/to/app 'App\Jobs' 'App\Http'   # one aggregated edge, with every class pair and file:line
+VERSION=v0.1.0
+TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+
+curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
+sudo mv "puml-extract-$VERSION-$TARGET/puml-extract" /usr/local/bin/
 ```
 
-`report` prints every rule violation with its `file:line`, every module cycle with the edges that close it
-and the cheapest cut that breaks it, a metrics table per app module, fan-out outliers, the layer of
-every module and the extractor's unresolved references. The cut is the exact minimum (a minimum
-feedback arc set) for cycles of up to 12 modules; larger cycles get a greedy cut labelled as such. Output is sorted and stable, so two runs diff
-cleanly. `show` drills into one node or edge the way a click does in the viewer. Both extract first and
-take `--dev` like the extraction does.
+The Linux binaries are static and run on any distribution. `SHA256SUMS` in the release lets you check
+the download. If you download the archive through a browser on macOS instead, remove the quarantine flag
+before the first run: `xattr -d com.apple.quarantine puml-extract`.
 
-The verdict is judged once, in `extractor/src/verdict.rs`, and written into the graph JSON, so the
-viewer and `report` read the same violations, cycles and metrics and never disagree.
-
-### Rules
-
-The rules describe a conventional Laravel application and come from the Laravel documentation on the
-directory structure, which calls `Http` and `Console` "an API into the core of your application" that
-"do not actually contain application logic", and describes listeners as receiving events. A class is
-placed in a layer by the first namespace segment under its PSR-4 root:
-
-| layer | segments |
-|---|---|
-| `http` | `Http`, `Livewire`, `Filament`, `Nova`, `View` |
-| `console` | `Console` |
-| `providers` | `Providers` |
-| `database` | roots starting with `Database` |
-| `tests` | root `Tests` |
-| `core` | everything else |
-
-| rule | forbids |
-|---|---|
-| `core-independent-of-http` | core → http |
-| `core-independent-of-console` | core → console |
-| `http-independent-of-console` | http → console |
-| `console-independent-of-http` | console → http |
-| `events-independent-of-listeners` | `Events` → `Listeners` inside core |
-| `no-module-cycles` | a cycle between app modules |
-
-Providers, database and tests may depend on anything, and anything may depend on providers: the stock
-Breeze controllers reference `AppServiceProvider::HOME`. Vendor classes are never part of a rule. The
-rules are only checked when the project depends on `laravel/framework`; `laravel/framework` itself has
-an `Illuminate\Http` namespace and would fail every one of them.
-
-A fresh `laravel/laravel` skeleton produces zero violations and zero cycles. `fixtures/blog` seeds six
-violations and one cycle and is golden-tested against `fixtures/blog/expected/violations.json`.
-
-### Metrics
-
-Per app module, following Martin's *Agile Software Development*: `Ca` and `Ce` (classes in other app
-modules that use, or are used by, the module), instability `I = Ce / (Ca + Ce)`, abstractness `A`
-(abstract classes and interfaces over classes), distance from the main sequence `D = |A + I - 1|`, the
-number of vendor classes used, and cycle membership. A class's fan-out is the number of distinct app
-classes it uses outside its own module; outliers are above `mean + 2 sd` (and at least 5).
-
-### Checked against deptrac
-
-`verify/deptrac-config.js` writes a [deptrac](https://github.com/deptrac/deptrac) configuration from
-the rule table in a graph's verdict, and `verify/deptrac.js` compares deptrac's JSON report with puml's violations by
-file, line and class pair:
+To build from source you need Rust; the toolchain version is pinned in `extractor/rust-toolchain.toml`:
 
 ```sh
-node verify/deptrac-config.js out/app.json path/to/app > /tmp/deptrac/app.php
-(cd /tmp/deptrac && vendor/bin/deptrac analyse -c app.php --formatter json --output app.json --no-progress --no-cache)
-node verify/deptrac.js out/app.json /tmp/deptrac/app.json path/to/app
+git clone https://github.com/kauffinger/puml
+cd puml/extractor && cargo build --release
+# the binary is extractor/target/release/puml-extract
 ```
 
-On laravel.io both tools report the same 7 violations at the same lines; on `fixtures/blog` the same 6.
+## Quick start
 
-## Why the crates and not the `mago` CLI
+puml resolves your classes against `vendor/`, so install the Composer dependencies first:
 
-`mago ast --json app/Models/User.php` (mago 1.54.0) prints the concrete syntax tree of one file.
+```sh
+cd path/to/your-app
+composer install
+puml-extract . --html architecture.html
+open architecture.html          # xdg-open on Linux
+```
 
-- Names are not resolved: `extends Authenticatable` comes out as a `Local` identifier, and the `use`
-  alias has to be applied by the caller.
-- Identifiers are byte arrays.
-- Comments, and so PHPDoc generics, are not in the output.
-- The output is about 150 times the size of the source: 128 KB of JSON for the 840-byte `User.php`.
-- Running it once per file over `laravel/framework/src` took 10.7 s.
+That is all. The HTML file contains the viewer and your project's graph, so you can send it to someone
+or attach it to a pull request. Add `--dev` to include the `autoload-dev` roots, such as `tests/`, and
+`--out graph.json` to keep the raw graph as well.
 
-Linking the crates gives all of this in-process. `mago-names` resolves every identifier, and
-`mago-codex` scans each file into class metadata, including PHPDoc types. One pass over the 1,421
-framework files takes about 0.1 s.
+## A tour
 
-## Levels of detail
+The examples below are [laravel.io](https://github.com/laravelio/laravel.io), the community portal, as
+puml draws it.
 
-**Level 1, modules.** A node is a module:
+### Modules
 
-- a PSR-4 root from `composer.json` plus the next namespace segment, such as `App\Models` or
-  `Illuminate\Database`
-- or a whole vendor package, such as `laravel/framework`, collapsed into one node
-- or `php` for built-in classes
+The first view, shown above, has one box per module: a namespace directly under a PSR-4 root, such as
+`App\Models` or `App\Http`. Folder-shaped boxes are vendor packages, such as `laravel/framework`. An
+arrow from `App\Http` to `App\Models` means classes in `App\Http` use classes in `App\Models`; the
+number on it is how many class-to-class dependencies it stands for.
 
-Every module that declares a class is shown. A vendor package is shown only when an edge reaches it,
-and the `vendor` checkbox hides packages altogether.
+- **Red** boxes and arrows are dependency cycles: modules that, through some path, all depend on each
+  other.
+- **Purple** arrows break an architecture rule. Here, seven jobs in `App\Jobs` accept form requests from
+  `App\Http`.
 
-**Level 2, classes.** The focus is a namespace or a package, and the view walks the namespace tree one
-segment at a time:
+### Classes
 
-- Each class declared directly in the focus is a node.
-- Each child namespace is one node, labelled with its class count and the first few names inside it.
-  A chain of namespaces that hold no classes and have one child each is compacted into one node, so
-  `Controllers\Admin\Blog` is a single step.
-- A neighbour in the focus's own module is shown at sibling granularity: a class next to the focus is
-  a class node, and anything deeper is the sibling namespace that holds it. With the focus
-  `App\Http\Controllers`, a dependency on `App\Http\Requests\StoreUser` is drawn as `App\Http\Requests`.
-- A neighbour in any other module is shown as its module, and only when it shares an edge with the
-  focus.
+Double-click a module to open it. Each class is a box, and each sub-namespace is one box labelled with
+what is inside it, so `App\Http` stays readable even with 46 classes. Everything outside is shown only as
+far as it touches the namespace you are looking at.
 
-**Level 3, UML.** The focus is a class, or every class in a namespace. A focused class is drawn with its
-constants, properties and methods, with visibility (`+ # -`), types as written (including PHPDoc
-generics such as `list<Product>`). Its Eloquent relations are drawn as `relation` edges and listed in
-the side panel. Every class sharing an edge with the focus is drawn as a plain node.
+![The App\Http namespace of laravel.io: Controllers, Requests, Middleware and Resources, and the modules they depend on](assets/screenshots/http.png)
 
-**Aggregation.** At every level, an edge between two nodes aggregates every class edge between their
-classes. Its weight is the number of class edges under it. Hovering over it lists the class pairs
-behind it, heaviest first, and clicking it lists them in the panel with their `file:line` evidence.
-Levels 2 and 3 only show edges that touch the focus.
+### UML of a class
 
-**Edge view.** Double-clicking an aggregated edge opens it: the classes at both ends, grouped in one
-box per end, and only the class edges between them. The URL is the base view plus `from` and `to`, for
-example `#level=2&focus=App%5CHttp&from=App%5CHttp%5CControllers&to=App%5CModels`.
+Double-click a class to see its constants, properties and methods, with their visibility and types as
+written, PHPDoc generics included. Around it are the classes it depends on and the classes that use it,
+and each arrow says how: `extends`, `uses-trait`, `injects`, an Eloquent `relation` and so on. The side
+panel lists its parents, interfaces, traits and Eloquent relations.
 
-**Cycles.** Cycles are the strongly connected components of the projected graph, found with Tarjan's
-algorithm. They are drawn in red and listed in the side panel.
+![The UML of App\Models\Thread with its traits on the right and the jobs that use it on the left](assets/screenshots/thread.png)
 
-**Node budget.** The budget is 40 nodes at levels 1 and 2, and 24 at level 3, where the focused class
-alone takes the room of many plain nodes. Past the budget, the lowest-ranked nodes merge into one
-"N more" node, which you can click to list them. Cycles are found before the merge, so merging cannot
-create one.
+### What is behind an arrow
 
-**Edge budget.** At most 60 edges are drawn:
+Double-click an arrow to open it. You see exactly the classes at both ends and the dependencies between
+them. These are the seven jobs that depend on HTTP requests, which is what the purple arrow in the first
+picture was about:
 
-1. the heaviest edge of each node, so no node loses all of its edges
-2. then cycle edges before others, heaviest first, until the budget is reached
+![The edge view App\Jobs to App\Http: seven jobs, each with a form request in its method signature](assets/screenshots/edge.png)
 
-Hidden edges are listed in the panel.
-
-**Layout.** The viewer tries three layouts and keeps the most legible one:
-
-- First Graphviz `dot`, top to bottom (bottom to top at level 3).
-- If that does not fit, `dot` left to right.
-- If neither reaches a scale of 0.8, `neato`, without the contents lines and the edge view's end boxes,
-  which `neato` cannot place. Whichever layout has the larger scale wins.
-
-## Navigating
+### Getting around
 
 | action | effect |
 |---|---|
-| click a node or edge | selects it, dims everything not attached to it, and shows it in the panel |
-| double-click a node | opens it: a module, package or namespace becomes the focus, a class opens as its UML |
-| double-click an edge | opens the edge view |
-| Esc, Backspace or `↑ up` | goes to the parent view and selects the node you came from |
-| breadcrumb | jumps to any ancestor namespace |
+| click a box or arrow | selects it, fades everything unrelated, and shows the details in the side panel |
+| double-click a box | opens it: a module or namespace shows its classes, a class shows its UML |
+| double-click an arrow | shows the class-level dependencies behind it |
+| Esc, Backspace or `↑ up` | goes back up and keeps the box you came from selected |
+| breadcrumb | jumps to any enclosing namespace |
+| search field | jumps straight to a module, namespace or class |
 
-The panel lists a node's contents, what it depends on and what uses it, each as a link. Every
-`file:line` can open in VS Code, Cursor or PhpStorm. Pick the editor in the toolbar; the choice is
-kept in `localStorage`. The links are built from the graph's `path`, the absolute project root at
-extraction time, so they only work on the machine that ran the extractor.
+The checkboxes in the toolbar hide kinds of dependencies, for example everything except `extends` and
+`implements` to see only the type hierarchy. `vendor` hides the packages. `budget` sets how many boxes a
+view may have before the least important ones are folded into one "N more" box, which you can click to
+list.
 
-## Edge kinds
+Every `file:line` in the side panel can open in VS Code, Cursor or PhpStorm; choose the editor in the
+toolbar. The address bar always holds the current view, so a bookmark or a shared link opens the same
+picture.
 
-Every edge comes from a name that mago resolved; none come from regular expressions.
+## In the terminal
 
-| kind | source |
+The same verdict is available without a browser, for CI logs, code review or a coding agent:
+
+```sh
+puml-extract report path/to/app                       # the whole verdict
+puml-extract show path/to/app 'App\Models\Thread'     # one module, namespace or class
+puml-extract show path/to/app 'App\Jobs' 'App\Http'   # one arrow, with every file:line behind it
+```
+
+An excerpt of `report` on laravel.io:
+
+```
+puml report: laravelio/laravel.io (216 classes, 1149 edges, puml-extract 0.1.0 (mago 1.54.0))
+verdict: 7 rule violations, 2 module cycles, 9 fan-out outliers
+
+RULES  (one line per class edge that breaks a rule)
+  core-independent-of-http: 7 violations
+    Http is an entry point into the core, not part of it: models, jobs, events and the rest must not know about controllers, requests, middleware or UI components.
+    App\Jobs\CreateArticle -> App\Http\Requests\ArticleRequest  signature  app/Jobs/CreateArticle.php:30
+    App\Jobs\CreateReply -> App\Http\Requests\CreateReplyRequest  signature  app/Jobs/CreateReply.php:24
+    ...
+  core-independent-of-console: ok
+  ...
+
+MODULE CYCLES
+  2. 5 modules: App\Actions, App\Filament, App\Http, App\Jobs, App\Providers
+     edges inside the cycle, lightest first (weight = class edges):
+       App\Actions -> App\Jobs  1  new
+       ...
+       App\Jobs -> App\Http  7  signature x7  (7 rule violations)
+       App\Http -> App\Jobs  36  new x29, static x7
+     cheapest cut: App\Jobs -> App\Http (7)
+
+MODULES
+  module              classes   Ca  Ce     I     A     D  vendor  cycle    busiest class (fan-out)
+  App\Http                 46    8  56  0.88  0.04  0.08      37  cycle 2  App\Http\Controllers\Forum\ThreadsController (17)
+  App\Models                7  133  17  0.11  0.00  0.89      29  cycle 1  App\Models\Thread (15)
+  ...
+
+FAN-OUT OUTLIERS  (distinct app classes outside the class's own module; threshold mean + 2 sd = 6.6)
+   17  App\Http\Controllers\Forum\ThreadsController  app/Http/Controllers/Forum/ThreadsController.php:33
+   15  App\Models\Thread  app/Models/Thread.php:36
+  ...
+```
+
+The output is sorted and stable, so two runs diff cleanly.
+
+## What the verdict checks
+
+### Rules
+
+The rules describe a conventional Laravel application, following the Laravel documentation, which calls
+`Http` and `Console` "an API into the core of your application". puml sorts each class by the first
+namespace segment under its root:
+
+- **HTTP**: `Http`, `Livewire`, `Filament`, `Nova`, `View`
+- **Console**: `Console`
+- **Providers**, **database** (`Database\…`) and **tests** (`Tests\…`)
+- **Core**: everything else, such as models, jobs, actions, events and listeners
+
+Then it checks:
+
+| rule | in plain words |
 |---|---|
-| `extends`, `implements`, `uses-trait` | class declarations |
-| `injects` | constructor parameter types, including promoted properties |
-| `property` | property types, native and `@var` |
-| `signature` | parameter and return types of other methods, closures and arrow functions, native and PHPDoc, including generic arguments |
-| `relation` | `$this->hasMany(Post::class)` and the other Eloquent relation methods, read from the method body; labelled `posts(): HasMany` |
+| `core-independent-of-http` | models, jobs and the rest of the core do not know about controllers, requests, middleware or UI components |
+| `core-independent-of-console` | the core does not know about Artisan commands |
+| `http-independent-of-console`, `console-independent-of-http` | HTTP and Console are two separate entry points; one does not go through the other |
+| `events-independent-of-listeners` | an event does not know who listens to it |
+| `no-module-cycles` | no two modules depend on each other, directly or through others |
+
+Providers, database classes and tests may use anything, and vendor code is never judged. A fresh
+`laravel new` application passes every rule.
+
+For each cycle, puml lists the dependencies that close it, lightest first, and the **cheapest cut**: the
+smallest set of dependencies whose removal breaks the cycle. On laravel.io, moving the seven form
+requests out of the jobs' signatures would fix both the rule violations and the second cycle.
+
+### Metrics
+
+For each module of your application:
+
+| column | meaning |
+|---|---|
+| `Ca` | how many classes in other modules use this one; high means many things break when it changes |
+| `Ce` | how many classes in other modules this one uses |
+| `I` | instability, `Ce / (Ca + Ce)`: 0 is depended upon and stable, 1 depends on everything and is easy to change |
+| `A` | abstractness: the share of interfaces and abstract classes |
+| `D` | distance from the main sequence, `\|A + I - 1\|`: high means stable but concrete, or abstract but unused |
+| `vendor` | how many vendor classes it uses |
+
+A class's **fan-out** is the number of classes in other modules it uses. Classes far above the average
+are listed as outliers; they are usually the controllers and models that are worth splitting first.
+
+## What counts as a dependency
+
+Every arrow comes from a name PHP would resolve, never from a text search:
+
+| kind | from |
+|---|---|
+| `extends`, `implements`, `uses-trait` | the class declaration |
+| `injects` | constructor parameter types |
+| `property` | property types, native or `@var` |
+| `signature` | parameter and return types, native or PHPDoc, including generics such as `Collection<int, User>` |
+| `relation` | Eloquent relations such as `$this->hasMany(Post::class)` |
 | `new` | `new Foo` |
-| `static` | `Foo::bar()`, `Foo::CONST`, `Foo::$prop` |
-| `facade` | static calls on a facade, drawn to the facade's underlying class |
+| `static` | `Foo::bar()`, `Foo::CONST` |
+| `facade` | a facade call, drawn to the class behind the facade |
 | `reference` | `Foo::class`, `instanceof Foo`, `catch (Foo $e)` |
 
-Facades are resolved from `getFacadeAccessor()`:
+## Limitations
 
-- If it returns `Foo::class`, the facade resolves to that class.
-- If it returns a string key, the key is looked up in `Application::registerCoreContainerAliases()`.
-- Real-time facades (`Facades\App\Foo`) resolve to `App\Foo`.
-- Global aliases such as `\Route` are resolved through `Facade::defaultAliases()`.
+- **Install dependencies first.** Without `vendor/`, puml cannot tell that the project is a Laravel
+  application, and the rules are reported as not checked.
+- **The rules are for Laravel applications.** Other PHP projects still get the diagrams, cycles and
+  metrics.
+- **Nothing is guessed.** A dependency that is only known at runtime, such as `new $class` or a relation
+  whose related class is not written as `Foo::class`, is listed under "unresolved" with its `file:line`
+  instead of being drawn.
+- **Editor links point at your machine.** They use the absolute path of the project at extraction time,
+  so in a file someone sent you they will not open.
 
-Anything that cannot be resolved statically goes into the graph's `unresolved` list with its
-`file:line`. Such cases are never guessed.
+## Contributing
 
-## Graph JSON (version 2)
-
-```
-{ version, project, path, generator, roots, packages, classes, edges, unresolved, stats, verdict }
-class: { id, name, namespace, package, root, kind, external, layer, ... }
-edge: { from, to, kind, label?, evidence: [{ file, line }] }
-verdict: { rules_apply, rules_scope, rules, cycle_rule, layer_segments, violations: [{ rule, edge }],
-           cycles, modules, fan_out, outliers, layers }
-```
-
-A violation's `edge` is an index into `edges`.
-
-The JSON is the contract under test. `fixtures/shop/expected/` holds the hand-written expected graph,
-and the expected projection at each level.
-
-## Verification
-
-```sh
-pnpm test
-php verify/inheritance.php out/app.json path/to/app/vendor/autoload.php [--json report.json]
-php verify/classes.php     out/app.json path/to/app
-php verify/relations.php   out/app.json path/to/app [--json report.json]
-php verify/facades.php     out/app.json path/to/app
-```
-
-| verifier | compares the graph against |
-|---|---|
-| `inheritance.php` | `ReflectionClass` for every class, reporting precision, recall and every mismatch for `extends`, `implements` and `uses-trait` |
-| `classes.php` | the class-likes PHP's own tokenizer finds in every scanned file |
-| `relations.php` | `php artisan model:show --json` for every model, by relation name, relation type and related class (run it from the app root, with a working database connection) |
-| `facades.php` | the class each facade resolves to at runtime in the booted app |
-
-## Releasing
-
-CI (`.github/workflows/ci.yml`) builds the extractor and runs `cargo test` and `pnpm test` on every
-push and pull request. It has no corpora, so the laravel.io and framework invariants are skipped there.
-
-To release, bump `version` in `extractor/Cargo.toml`, commit, and push a matching tag:
-
-```sh
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-`.github/workflows/release.yml` fails if the tag and the crate version differ, builds the four binaries
-and publishes a GitHub release with the archives, `SHA256SUMS` and generated notes.
-
-## Dependencies
-
-Every dependency here was at least 7 days old when it was added:
-
-- **pnpm** enforces this with `minimumReleaseAge: 10080` in `pnpm-workspace.yaml`.
-- **Cargo** has no such setting. `Cargo.lock` was generated with `--publish-time` set 7 days back, and
-  the mago crates are pinned to `=1.54.0`.
-- **Composer** (2.10) has no release-age setting either. Corpora without a committed lock were resolved
-  with `composer update --no-install`. Any package younger than 7 days was then pinned with `--with
-  vendor/package:version` before installing.
-- **GitHub Actions** are pinned to the commit of a release that was at least 7 days old.
+How puml is built, tested and checked against PHP itself is in [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -249,7 +249,7 @@ function toDot(projection, edges, rankdir, { layered = true } = {}) {
 function nodeAttributes(node, projection, layered) {
     const focus = projection.focus;
     const attributes = {
-        tooltip: dotString(nodeTooltip(node)),
+        tooltip: dotTooltip(nodeTooltip(node)),
     };
 
     if (node.kind === 'uml') {
@@ -380,7 +380,7 @@ function edgeAttributes(edge, projection) {
     const classLevel = projection.level === 3 || projection.edge;
 
     const attributes = {
-        tooltip: dotString(edgeTooltip(edge)),
+        tooltip: dotTooltip(edgeTooltip(edge)),
         label: dotString(classLevel ? describeKinds(edge) : String(edge.weight)),
         penwidth: Math.min(1 + Math.log2(edge.weight) * 0.6, 5).toFixed(2),
     };
@@ -464,9 +464,14 @@ function formatAttributes(attributes) {
         .join(', ');
 }
 
-// The DOT parser unescapes once and Graphviz then expands \N, \E and friends, so each backslash is doubled twice.
 function dotString(text) {
     return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+// Graphviz expands \N, \E and friends in a tooltip once more than in a label, so App\Enums would show as
+// "Appnums" unless each backslash is doubled twice.
+function dotTooltip(text) {
+    return dotString(text.replace(/\\/g, '\\\\'));
 }
 
 function escapeHtml(text) {
@@ -1107,8 +1112,8 @@ function classDetails(cls) {
         (cls.file ? ` in ${sourceLink(cls.file, cls.line)}` : ' (not scanned)') +
         `<br><a data-namespace="${escapeHtml(cls.namespace)}">${escapeHtml(cls.namespace)}</a></p>` +
         list('Extends', cls.parent ? [classLink(cls.parent)] : []) +
-        list('Implements', (cls.interfaces ?? []).map(classLink)) +
-        list('Uses', (cls.traits ?? []).map(classLink)) +
+        list('Implements', (cls.interfaces ?? []).map((id) => classLink(id))) +
+        list('Uses', (cls.traits ?? []).map((id) => classLink(id))) +
         list(
             'Relations',
             (cls.relations ?? []).map((relation) => `${code(relation.name)} ${relation.type} ${relation.related ? classLink(relation.related) : '<span class="muted">runtime</span>'}`),
