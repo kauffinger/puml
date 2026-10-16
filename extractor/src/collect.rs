@@ -314,13 +314,23 @@ impl<'ast, 'arena> Walker<'ast, 'arena, WalkContext<'_, 'arena>> for EdgeWalker 
 
     fn walk_in_static_method_call(&self, call: &'ast StaticMethodCall<'arena>, context: &mut WalkContext<'_, 'arena>) {
         if let Some(name) = context.class_expression(call.class) {
-            context.edge(name, EdgeKind::Static, None, call.class.offset());
+            let member = match &call.method {
+                ClassLikeMemberSelector::Identifier(method) => Some(format!("{}()", String::from_utf8_lossy(method.value))),
+                _ => None,
+            };
+
+            context.edge(name, EdgeKind::Static, member, call.class.offset());
         }
     }
 
     fn walk_in_static_property_access(&self, access: &'ast StaticPropertyAccess<'arena>, context: &mut WalkContext<'_, 'arena>) {
         if let Some(name) = context.class_expression(access.class) {
-            context.edge(name, EdgeKind::Static, None, access.class.offset());
+            let member = match &access.property {
+                Variable::Direct(property) => Some(String::from_utf8_lossy(property.name).into_owned()),
+                _ => None,
+            };
+
+            context.edge(name, EdgeKind::Static, member, access.class.offset());
         }
     }
 
@@ -335,9 +345,16 @@ impl<'ast, 'arena> Walker<'ast, 'arena, WalkContext<'_, 'arena>> for EdgeWalker 
             return;
         }
 
-        let is_class_name = matches!(&access.constant, ClassLikeConstantSelector::Identifier(constant) if constant.value.eq_ignore_ascii_case(b"class"));
+        let constant = match &access.constant {
+            ClassLikeConstantSelector::Identifier(constant) => Some(String::from_utf8_lossy(constant.value).into_owned()),
+            _ => None,
+        };
 
-        context.edge(name, if is_class_name { EdgeKind::Reference } else { EdgeKind::Static }, None, offset);
+        if constant.as_deref().is_some_and(|constant| constant.eq_ignore_ascii_case("class")) {
+            context.edge(name, EdgeKind::Reference, None, offset);
+        } else {
+            context.edge(name, EdgeKind::Static, constant, offset);
+        }
     }
 
     fn walk_in_binary(&self, binary: &'ast Binary<'arena>, context: &mut WalkContext<'_, 'arena>) {
@@ -480,12 +497,12 @@ fn describe_class(
     cases.sort();
     class.cases = cases;
 
-    let mut type_edge = |to: String, kind: EdgeKind, line: u32| {
+    let mut type_edge = |to: String, kind: EdgeKind, label: Option<String>, line: u32| {
         edges.push(RawEdge {
             from: class.id.clone(),
             to,
             kind,
-            label: None,
+            label,
             file: relative.clone(),
             line,
             declared_at: class.line.unwrap_or_default(),
@@ -500,7 +517,7 @@ fn describe_class(
 
         if let Some(type_metadata) = type_metadata {
             for name in class_names(&type_metadata.type_union) {
-                type_edge(name, EdgeKind::Property, line_of(type_metadata));
+                type_edge(name, EdgeKind::Property, None, line_of(type_metadata));
             }
         }
 
@@ -525,6 +542,7 @@ fn describe_class(
     for method in methods {
         let method_metadata = method.method_metadata.as_ref().expect("filtered on method metadata");
         let parameter_kind = if method_metadata.is_constructor { EdgeKind::Injects } else { EdgeKind::Signature };
+        let member = (!method_metadata.is_constructor).then(|| format!("{}()", method.original_name));
 
         let params = method
             .parameters
@@ -534,7 +552,7 @@ fn describe_class(
 
                 if let Some(type_metadata) = type_metadata {
                     for name in class_names(&type_metadata.type_union) {
-                        type_edge(name, parameter_kind, line_of(type_metadata));
+                        type_edge(name, parameter_kind, member.clone(), line_of(type_metadata));
                     }
                 }
 
@@ -549,7 +567,7 @@ fn describe_class(
 
         if let Some(type_metadata) = returns {
             for name in class_names(&type_metadata.type_union) {
-                type_edge(name, EdgeKind::Signature, line_of(type_metadata));
+                type_edge(name, EdgeKind::Signature, member.clone(), line_of(type_metadata));
             }
         }
 

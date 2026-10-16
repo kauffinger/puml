@@ -17,6 +17,7 @@ use crate::graph::Graph;
 use crate::graph::Method;
 use crate::graph::Property;
 use crate::verdict::CYCLE_RULE;
+use crate::verdict::Cycle;
 use crate::verdict::RULES;
 use crate::verdict::RULES_SCOPE;
 use crate::verdict::module_of;
@@ -119,32 +120,14 @@ pub fn report(graph: &Graph, source: &str) -> String {
 
     for (position, cycle) in verdict.cycles.iter().enumerate() {
         index.out(format!("  {}. {} modules: {}", position + 1, cycle.modules.len(), cycle.modules.join(", ")));
-        index.out("     edges inside the cycle, lightest first (weight = class edges):");
-
-        for edge in &cycle.edges {
-            let broken = if edge.violations > 0 {
-                format!("  ({} rule violation{})", edge.violations, plural(edge.violations as usize, "s"))
-            } else {
-                String::new()
-            };
-
-            index.out(format!("       {} -> {}  {}  {}{broken}", edge.from, edge.to, edge.weight, describe_kinds(&edge.kinds)));
-        }
-
-        let label = if cycle.exact {
-            "cheapest cut".to_string()
-        } else {
-            format!("a cut that breaks it ({} modules is too many to find the cheapest)", cycle.modules.len())
-        };
-
-        let cut: Vec<String> = cycle.cut.iter().map(|edge| format!("{} -> {} ({})", edge.from, edge.to, edge.weight)).collect();
-
-        index.out(format!("     {label}: {}", cut.join(", ")));
+        print_cycle(&mut index, cycle, source);
     }
 
     index.out("");
-    index.out("MODULES  (app modules only; Ca, Ce = classes in other app modules using/used by it; I = Ce/(Ca+Ce);");
-    index.out("          A = abstract classes and interfaces / classes; D = |A+I-1|; vendor = vendor classes used)");
+    index.out("MODULES  (app modules only. Ca = classes in other app modules that use it: what a change to it can break.");
+    index.out("          Ce = classes in other app modules it uses: what can break it. I = Ce/(Ca+Ce), 0 = everything");
+    index.out("          depends on it, 1 = it depends on everything. A = abstract classes and interfaces / classes;");
+    index.out("          D = |A+I-1|, 0 = as abstract as it is depended on; vendor = vendor classes used)");
 
     let rows: Vec<Vec<String>> = verdict
         .modules
@@ -228,6 +211,112 @@ pub fn report(graph: &Graph, source: &str) -> String {
     index.finish()
 }
 
+fn print_cycle(index: &mut Index<'_>, cycle: &Cycle, source: &str) {
+    const FOLD_LIMIT: usize = 20;
+
+    if !cycle.folds.is_empty() {
+        index.out("     parts of another module, counted there (a trait, interface or abstract class used by one other module only):");
+
+        let kinds = |kind: &str, count: usize| if count == 1 { kind.to_string() } else { format!("{kind}{}", if kind == "abstract class" { "es" } else { "s" }) };
+
+        if cycle.folds.len() > FOLD_LIMIT {
+            let mut groups: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+
+            for fold in &cycle.folds {
+                *groups.entry((fold.kind, &fold.module)).or_default() += 1;
+            }
+
+            let summary: Vec<String> = groups.into_iter().map(|((kind, module), count)| format!("{count} {} from {module}", kinds(kind, count))).collect();
+
+            index.out(format!("       {} classes: {}", cycle.folds.len(), summary.join(", ")));
+        } else {
+            let mut groups: BTreeMap<(&str, &str, &str), Vec<&str>> = BTreeMap::new();
+
+            for fold in &cycle.folds {
+                let name = fold.class.strip_prefix(fold.module.as_str()).and_then(|rest| rest.strip_prefix('\\')).unwrap_or(&fold.class);
+
+                groups.entry((&fold.into, &fold.module, fold.kind)).or_default().push(name);
+            }
+
+            for ((into, module, kind), classes) in groups {
+                index.out(format!("       {into}: {} {} from {module}: {}", classes.len(), kinds(kind, classes.len()), classes.join(", ")));
+            }
+        }
+
+        if cycle.remaining.len() < cycle.modules.len() {
+            index.out(format!("     counted that way, {} modules are still in a cycle: {}", cycle.remaining.len(), cycle.remaining.join(", ")));
+        }
+    }
+
+    const EDGE_LIMIT: usize = 12;
+    const EVIDENCE_LIMIT: usize = 10;
+
+    let shown = if cycle.edges.len() > EDGE_LIMIT + 3 { EDGE_LIMIT } else { cycle.edges.len() };
+
+    index.out(format!(
+        "     {}edges inside the cycle, lightest first (weight = class edges):",
+        if shown < cycle.edges.len() { format!("the {shown} lightest of {} ", cycle.edges.len()) } else { String::new() }
+    ));
+
+    for edge in &cycle.edges[..shown] {
+        let broken = if edge.violations > 0 {
+            format!("  ({} rule violation{})", edge.violations, plural(edge.violations as usize, "s"))
+        } else {
+            String::new()
+        };
+
+        index.out(format!("       {} -> {}  {}  {}{broken}", edge.from, edge.to, edge.weight, describe_kinds(&edge.kinds)));
+    }
+
+    if shown < cycle.edges.len() {
+        index.out(format!("       ... {} more: puml-extract show {source} <module> lists each module's edges", cycle.edges.len() - shown));
+    }
+
+    let label = if cycle.exact {
+        "cheapest cut".to_string()
+    } else {
+        format!("a cut that breaks it ({} modules is too many to find the cheapest)", cycle.remaining.len())
+    };
+    let cost = &cycle.cost;
+
+    index.out(format!(
+        "     {label}: {} class edge{} in {} file{}, fixes {} rule violation{}",
+        cost.class_edges,
+        plural(cost.class_edges as usize, "s"),
+        cost.files,
+        plural(cost.files, "s"),
+        cost.violations,
+        plural(cost.violations as usize, "s")
+    ));
+
+    let listed = if cycle.exact { cycle.cut.len() } else { cycle.cut.len().min(EDGE_LIMIT) };
+
+    for edge in &cycle.cut[..listed] {
+        index.out(format!("       {} -> {}  {}", edge.from, edge.to, edge.weight));
+
+        if !cycle.exact {
+            continue;
+        }
+
+        for position in edge.edges.iter().take(EVIDENCE_LIMIT) {
+            index.out(format!("         {}", edge_line(&index.graph.edges[*position])));
+        }
+
+        if edge.edges.len() > EVIDENCE_LIMIT {
+            index.out(format!(
+                "         ... {} more: puml-extract show {source} {} {}",
+                edge.edges.len() - EVIDENCE_LIMIT,
+                edge.from,
+                edge.to
+            ));
+        }
+    }
+
+    if listed < cycle.cut.len() {
+        index.out(format!("       ... {} more edges in the cut; puml-extract show {source} <from> <to> shows the class edges behind each", cycle.cut.len() - listed));
+    }
+}
+
 /// Prints a module, namespace or class, or with `to` the edge between two of them. Returns the text and
 /// whether anything was found.
 pub fn show(graph: &Graph, target: &str, to: Option<&str>) -> (String, bool) {
@@ -249,7 +338,12 @@ fn print_target(index: &mut Index<'_>, id: &str) -> bool {
     }
 
     let graph = index.graph;
-    let members: Vec<&ClassNode> = graph.classes.iter().filter(|class| !class.external && in_namespace(&class.namespace, id)).collect();
+    let is_root = graph.roots.iter().any(|root| root == id);
+    let members: Vec<&ClassNode> = graph
+        .classes
+        .iter()
+        .filter(|class| !class.external && if is_root { class.namespace == id } else { in_namespace(&class.namespace, id) })
+        .collect();
 
     if members.is_empty() {
         let needle = id.to_lowercase();
@@ -319,6 +413,20 @@ fn print_target(index: &mut Index<'_>, id: &str) -> bool {
         };
 
         index.out(line);
+    }
+
+    if is_root {
+        let modules: Vec<String> = graph
+            .verdict
+            .modules
+            .iter()
+            .filter(|module| module.id != id && in_namespace(&module.id, id))
+            .map(|module| format!("{} ({})", module.id, module.classes))
+            .collect();
+
+        index.out("");
+        index.out(format!("MODULES UNDER {id}  (the root module holds only the classes declared directly in it)"));
+        index.out(format!("  {}", modules.join(", ")));
     }
 
     let inside: HashSet<&str> = members.iter().map(|member| member.id.as_str()).collect();
@@ -440,7 +548,15 @@ fn grouped_edges(index: &mut Index<'_>, edges: &[(usize, &Edge)], other_side: fn
     ordered.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0)));
 
     for (key, mut group) in ordered {
-        index.out(format!("  {key}  {}", group.len()));
+        let classes: HashSet<&str> = group.iter().map(|edge| other_side(edge).as_str()).collect();
+
+        index.out(format!(
+            "  {key}  {} class{}, {} class edge{}",
+            classes.len(),
+            plural(classes.len(), "es"),
+            group.len(),
+            plural(group.len(), "s")
+        ));
 
         group.sort_by(|a, b| (&a.from, &a.to, a.kind.name()).cmp(&(&b.from, &b.to, b.kind.name())));
 

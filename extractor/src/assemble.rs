@@ -14,6 +14,7 @@ use crate::graph::Evidence;
 use crate::graph::FORMAT_VERSION;
 use crate::graph::Graph;
 use crate::graph::Package;
+use crate::graph::split_name;
 use crate::graph::PackageKind;
 use crate::graph::Stats;
 use crate::graph::Unresolved;
@@ -24,6 +25,12 @@ use crate::verdict::Verdict;
 use crate::verdict::place_of;
 
 const PSEUDO_TYPES: &[&str] = &["self", "static", "parent", "$this"];
+
+#[derive(Default)]
+struct Grouped {
+    evidence: BTreeSet<Evidence>,
+    members: BTreeSet<String>,
+}
 
 pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
     let mut classes: Vec<ClassNode> = Vec::new();
@@ -66,7 +73,7 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
 
     let mut facades = FacadeResolver::new(project);
     let mut reported_facades = BTreeSet::new();
-    let mut grouped: BTreeMap<(String, String, EdgeKind, Option<String>), BTreeSet<Evidence>> = BTreeMap::new();
+    let mut grouped: BTreeMap<(String, String, EdgeKind, Option<String>), Grouped> = BTreeMap::new();
 
     for mut edge in raw_edges {
         if dropped_declarations.contains(&(edge.file.clone(), edge.declared_at)) {
@@ -110,15 +117,33 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
             continue;
         }
 
-        grouped
-            .entry((edge.from, edge.to, edge.kind, edge.label))
-            .or_default()
-            .insert(Evidence { file: edge.file, line: edge.line });
+        // Static and signature edges stay one edge per class pair however many members are involved; the
+        // members become the label, so the report can say `via UserPolicy::ADMIN` or `via CreateThread::fromRequest()`
+        // without the member count changing weights.
+        let member = match edge.kind {
+            EdgeKind::Static => edge.label.take().map(|member| format!("{}::{member}", split_name(&edge.to).1)),
+            EdgeKind::Signature => edge.label.take().map(|member| format!("{}::{member}", split_name(&edge.from).1)),
+            _ => None,
+        };
+        let label = edge.label;
+        let group = grouped.entry((edge.from, edge.to.clone(), edge.kind, label)).or_default();
+
+        group.evidence.insert(Evidence { file: edge.file, line: edge.line });
+
+        if let Some(member) = member {
+            group.members.insert(member);
+        }
     }
 
     let edges: Vec<Edge> = grouped
         .into_iter()
-        .map(|((from, to, kind, label), evidence)| Edge { from, to, kind, label, evidence: evidence.into_iter().collect() })
+        .map(|((from, to, kind, label), group)| Edge {
+            from,
+            to,
+            kind,
+            label: label.or_else(|| (!group.members.is_empty()).then(|| group.members.into_iter().collect::<Vec<_>>().join(", "))),
+            evidence: group.evidence.into_iter().collect(),
+        })
         .collect();
 
     let mut packages: BTreeSet<Package> = BTreeSet::new();

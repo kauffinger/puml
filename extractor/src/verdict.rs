@@ -124,15 +124,43 @@ pub struct ModuleEdge {
     pub weight: u64,
     pub kinds: BTreeMap<EdgeKind, u64>,
     pub violations: u64,
+    /// The class edges behind it, as indexes into the graph's edges. Only the edges of a cut carry them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edges: Vec<usize>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Cycle {
     pub modules: Vec<String>,
-    /// Lightest first.
+    /// Classes of the cycle's modules that are really parts of another module in it.
+    pub folds: Vec<Fold>,
+    /// The modules still in a cycle once the folds are counted where they belong; empty when nothing is.
+    pub remaining: Vec<String>,
+    /// Edges between the remaining modules, folds applied, lightest first.
     pub edges: Vec<ModuleEdge>,
     pub exact: bool,
     pub cut: Vec<ModuleEdge>,
+    pub cost: Cost,
+}
+
+/// A trait, interface or abstract class whose every user (uses-trait, implements, extends) lives in one
+/// other module is a part of that module, wherever its file is: a model trait in App\Concerns belongs to
+/// App\Models. Cutting the edges between a module and its own parts breaks nothing worth breaking, so the
+/// cut is chosen with each part counted in the module that uses it.
+#[derive(Debug, Serialize)]
+pub struct Fold {
+    pub class: String,
+    pub kind: &'static str,
+    pub module: String,
+    pub into: String,
+    pub users: usize,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct Cost {
+    pub class_edges: u64,
+    pub files: usize,
+    pub violations: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -265,7 +293,7 @@ impl Verdict {
 
         let violating: HashSet<usize> = violations.iter().map(|violation| violation.edge).collect();
         let modules = app_modules(&graph, &classes, &violating);
-        let cycles = module_cycles(&modules);
+        let cycles = module_cycles(&graph, &classes, &modules, &violating);
         let fan_out = class_fan_out(&graph, &classes);
 
         Verdict {
@@ -325,20 +353,92 @@ fn app_modules<'a>(graph: &Parts<'a>, classes: &HashMap<&str, &'a ClassNode>, vi
             }
         }
 
-        let aggregated = edges.entry((from_module.clone(), to_module.clone())).or_insert_with(|| ModuleEdge {
-            from: from_module,
-            to: to_module,
-            weight: 0,
-            kinds: BTreeMap::new(),
-            violations: 0,
-        });
-
-        aggregated.weight += 1;
-        *aggregated.kinds.entry(edge.kind).or_default() += 1;
-        aggregated.violations += u64::from(violating.contains(&index));
+        aggregate(&mut edges, from_module, to_module, index, edge.kind, violating);
     }
 
     ModuleGraph { nodes: nodes.into_iter().collect(), edges: edges.into_values().collect() }
+}
+
+fn aggregate(
+    edges: &mut BTreeMap<(String, String), ModuleEdge>,
+    from: String,
+    to: String,
+    index: usize,
+    kind: EdgeKind,
+    violating: &HashSet<usize>,
+) {
+    let aggregated = edges.entry((from.clone(), to.clone())).or_insert_with(|| ModuleEdge {
+        from,
+        to,
+        weight: 0,
+        kinds: BTreeMap::new(),
+        violations: 0,
+        edges: Vec::new(),
+    });
+
+    aggregated.weight += 1;
+    *aggregated.kinds.entry(kind).or_default() += 1;
+    aggregated.violations += u64::from(violating.contains(&index));
+    aggregated.edges.push(index);
+}
+
+struct Home {
+    module: String,
+    users: usize,
+}
+
+fn is_part(class: &ClassNode) -> bool {
+    class.kind == "trait" || class.kind == "interface" || class.r#abstract
+}
+
+/// The module each trait, interface and abstract class belongs to when it differs from the one its file
+/// is in: the one module holding all of its users. Users are placed where they belong themselves, so a
+/// trait used only by traits of the models counts as a model trait too.
+fn homes<'a>(graph: &Parts<'a>, classes: &HashMap<&str, &'a ClassNode>) -> HashMap<&'a str, Home> {
+    let mut users: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for edge in graph.edges {
+        let (from, to) = (classes[edge.from.as_str()], classes[edge.to.as_str()]);
+
+        if matches!(edge.kind, EdgeKind::Extends | EdgeKind::Implements | EdgeKind::UsesTrait) && !is_vendor(from) && !is_vendor(to) {
+            users.entry(&edge.to).or_default().push(&edge.from);
+        }
+    }
+
+    let parts: Vec<&ClassNode> = graph.classes.iter().filter(|class| !is_vendor(class) && is_part(class)).collect();
+    let mut homes: HashMap<&str, Home> = HashMap::new();
+
+    loop {
+        let mut next: HashMap<&str, Home> = HashMap::new();
+
+        for part in &parts {
+            let Some(using) = users.get(part.id.as_str()) else {
+                continue;
+            };
+
+            let modules: BTreeSet<String> = using
+                .iter()
+                .map(|user| homes.get(user).map_or_else(|| module_of(classes[user]), |home| home.module.clone()))
+                .collect();
+
+            if modules.len() == 1 {
+                let module = modules.into_iter().next().expect("one module");
+
+                if module != module_of(part) {
+                    next.insert(&part.id, Home { module, users: using.len() });
+                }
+            }
+        }
+
+        let settled = next.len() == homes.len() && next.iter().all(|(id, home)| homes.get(id).is_some_and(|previous| previous.module == home.module));
+        homes = next;
+
+        if settled {
+            break;
+        }
+    }
+
+    homes
 }
 
 /// Tarjan's strongly connected components, visiting nodes in the given order.
@@ -423,8 +523,15 @@ fn lightest_first(a: &ModuleEdge, b: &ModuleEdge) -> std::cmp::Ordering {
     (a.weight, &a.from, &a.to).cmp(&(b.weight, &b.from, &b.to))
 }
 
-fn module_cycles(modules: &ModuleGraph<'_>) -> Vec<Cycle> {
+fn module_cycles<'a>(
+    graph: &Parts<'a>,
+    classes: &HashMap<&str, &'a ClassNode>,
+    modules: &ModuleGraph<'_>,
+    violating: &HashSet<usize>,
+) -> Vec<Cycle> {
     let node_ids: Vec<String> = modules.nodes.iter().map(|(id, _)| id.clone()).collect();
+    let homes = homes(graph, classes);
+    let home_of = |class: &ClassNode| homes.get(class.id.as_str()).map_or_else(|| module_of(class), |home| home.module.clone());
     let mut cycles = Vec::new();
 
     for component in strongly_connected(&node_ids, &modules.edges) {
@@ -433,22 +540,82 @@ fn module_cycles(modules: &ModuleGraph<'_>) -> Vec<Cycle> {
         }
 
         let members: HashSet<&str> = component.iter().map(String::as_str).collect();
-        let mut edges: Vec<ModuleEdge> = modules
-            .edges
-            .iter()
-            .filter(|edge| members.contains(edge.from.as_str()) && members.contains(edge.to.as_str()))
-            .cloned()
-            .collect();
-
-        let mut sorted = component;
+        let mut sorted = component.clone();
         sorted.sort();
 
-        let exact = sorted.len() <= EXACT_CUT_LIMIT;
-        let cut = if exact { exact_cut(&sorted, &edges) } else { pruned_greedy_cut(&sorted, &edges) };
+        let mut folds: Vec<Fold> = graph
+            .classes
+            .iter()
+            .filter(|class| !is_vendor(class) && members.contains(module_of(class).as_str()))
+            .filter_map(|class| {
+                let home = homes.get(class.id.as_str())?;
+
+                Some(Fold {
+                    class: class.id.clone(),
+                    kind: if class.kind == "class" { "abstract class" } else { class.kind },
+                    module: module_of(class),
+                    into: home.module.clone(),
+                    users: home.users,
+                })
+            })
+            .collect();
+
+        folds.sort_by(|a, b| (&a.into, &a.module, &a.class).cmp(&(&b.into, &b.module, &b.class)));
+
+        let mut folded: BTreeMap<(String, String), ModuleEdge> = BTreeMap::new();
+
+        for (index, edge) in graph.edges.iter().enumerate() {
+            let (from, to) = (classes[edge.from.as_str()], classes[edge.to.as_str()]);
+
+            if is_vendor(from) || is_vendor(to) {
+                continue;
+            }
+
+            let (from_module, to_module) = (home_of(from), home_of(to));
+
+            if from_module != to_module && members.contains(from_module.as_str()) && members.contains(to_module.as_str()) {
+                aggregate(&mut folded, from_module, to_module, index, edge.kind, violating);
+            }
+        }
+
+        let folded: Vec<ModuleEdge> = folded.into_values().collect();
+        let mut remaining: Vec<String> = strongly_connected(&sorted, &folded)
+            .into_iter()
+            .filter(|component| component.len() > 1)
+            .flatten()
+            .collect();
+        remaining.sort();
+
+        if remaining.is_empty() {
+            continue;
+        }
+
+        let still: HashSet<&str> = remaining.iter().map(String::as_str).collect();
+        let mut edges: Vec<ModuleEdge> =
+            folded.into_iter().filter(|edge| still.contains(edge.from.as_str()) && still.contains(edge.to.as_str())).collect();
+
+        let exact = remaining.len() <= EXACT_CUT_LIMIT;
+        let cut = if exact { exact_cut(&remaining, &edges) } else { pruned_greedy_cut(&remaining, &edges) };
+
+        let files: HashSet<&str> = cut
+            .iter()
+            .flat_map(|edge| &edge.edges)
+            .flat_map(|index| &graph.edges[*index].evidence)
+            .map(|place| place.file.as_str())
+            .collect();
+        let cost = Cost {
+            class_edges: cut.iter().map(|edge| edge.weight).sum(),
+            files: files.len(),
+            violations: cut.iter().map(|edge| edge.violations).sum(),
+        };
 
         edges.sort_by(lightest_first);
 
-        cycles.push(Cycle { modules: sorted, edges, exact, cut });
+        for edge in &mut edges {
+            edge.edges.clear();
+        }
+
+        cycles.push(Cycle { modules: sorted, folds, remaining, edges, exact, cut, cost });
     }
 
     cycles.sort_by(|a, b| b.modules.len().cmp(&a.modules.len()).then_with(|| a.modules[0].cmp(&b.modules[0])));
@@ -457,14 +624,16 @@ fn module_cycles(modules: &ModuleGraph<'_>) -> Vec<Cycle> {
 }
 
 /// Orders the modules so that the edges pointing backwards weigh the least (dynamic programming over the
-/// subsets of modules already placed); the backward edges are the cut.
+/// subsets of modules already placed); the backward edges are the cut. Among cuts of the same weight, the
+/// one with fewer edges wins: one place to change rather than two.
 fn exact_cut(node_ids: &[String], edges: &[ModuleEdge]) -> Vec<ModuleEdge> {
     let count = node_ids.len();
     let position: HashMap<&str, usize> = node_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
+    let scale = edges.len() as u64 + 1;
     let mut weight = vec![vec![0u64; count]; count];
 
     for edge in edges {
-        weight[position[edge.from.as_str()]][position[edge.to.as_str()]] += edge.weight;
+        weight[position[edge.from.as_str()]][position[edge.to.as_str()]] += edge.weight * scale + 1;
     }
 
     let mut cost = vec![u64::MAX; 1 << count];
@@ -576,7 +745,7 @@ fn module_metrics(
     let in_cycle: HashMap<&str, usize> = cycles
         .iter()
         .enumerate()
-        .flat_map(|(position, cycle)| cycle.modules.iter().map(move |id| (id.as_str(), position + 1)))
+        .flat_map(|(position, cycle)| cycle.remaining.iter().map(move |id| (id.as_str(), position + 1)))
         .collect();
     let fan_out: HashMap<&str, usize> = fan_out.iter().copied().collect();
     let mut outgoing: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -819,5 +988,125 @@ mod tests {
             cycle.cut.iter().map(|edge| format!("{} -> {}", edge.from, edge.to)).collect::<Vec<_>>(),
             ["App\\Jobs -> App\\Http"]
         );
+    }
+
+    fn structural(from: &str, to: &str, kind: EdgeKind) -> Edge {
+        Edge { kind, ..reference(from, to, 1) }
+    }
+
+    fn cut_of(cycle: &Cycle) -> Vec<String> {
+        cycle.cut.iter().map(|edge| format!("{} -> {} ({})", edge.from, edge.to, edge.weight)).collect()
+    }
+
+    #[test]
+    fn a_trait_used_by_one_module_only_is_counted_there_and_its_edges_back_are_not_a_cycle() {
+        let mut thread = declare("App\\Models\\Thread", "App");
+        thread.kind = "class";
+        let mut has_author = declare("App\\Concerns\\HasAuthor", "App");
+        has_author.kind = "trait";
+        let classes = vec![thread, has_author, declare("App\\Models\\User", "App")];
+        let edges = vec![
+            structural("App\\Models\\Thread", "App\\Concerns\\HasAuthor", EdgeKind::UsesTrait),
+            reference("App\\Concerns\\HasAuthor", "App\\Models\\User", 5),
+        ];
+
+        let verdict = Verdict::of(&laravel(), &classes, &edges);
+
+        assert!(verdict.cycles.is_empty());
+        assert!(verdict.modules.iter().all(|module| module.cycle.is_none()));
+    }
+
+    #[test]
+    fn a_cycle_that_survives_the_folding_names_the_folds_and_the_modules_still_in_it() {
+        let mut has_author = declare("App\\Concerns\\HasAuthor", "App");
+        has_author.kind = "trait";
+        let classes = vec![
+            declare("App\\Models\\Thread", "App"),
+            declare("App\\Models\\User", "App"),
+            has_author,
+            declare("App\\Policies\\UserPolicy", "App"),
+        ];
+        let edges = vec![
+            structural("App\\Models\\Thread", "App\\Concerns\\HasAuthor", EdgeKind::UsesTrait),
+            reference("App\\Concerns\\HasAuthor", "App\\Models\\User", 5),
+            reference("App\\Models\\User", "App\\Policies\\UserPolicy", 6),
+            reference("App\\Policies\\UserPolicy", "App\\Models\\User", 7),
+        ];
+
+        let verdict = Verdict::of(&laravel(), &classes, &edges);
+        let cycle = &verdict.cycles[0];
+
+        assert_eq!(cycle.modules, ["App\\Concerns", "App\\Models", "App\\Policies"]);
+        assert_eq!(cycle.folds.len(), 1);
+        assert_eq!((cycle.folds[0].class.as_str(), cycle.folds[0].kind, cycle.folds[0].into.as_str(), cycle.folds[0].users), ("App\\Concerns\\HasAuthor", "trait", "App\\Models", 1));
+        assert_eq!(cycle.remaining, ["App\\Models", "App\\Policies"]);
+        assert_eq!(cycle.cut.len(), 1);
+        assert_eq!(cycle.cost.class_edges, 1);
+        let concerns = verdict.modules.iter().find(|module| module.id == "App\\Concerns").unwrap();
+        assert_eq!(concerns.cycle, None);
+    }
+
+    #[test]
+    fn a_trait_used_by_two_modules_stays_where_it_is() {
+        let mut has_author = declare("App\\Concerns\\HasAuthor", "App");
+        has_author.kind = "trait";
+        let classes = vec![declare("App\\Models\\Thread", "App"), declare("App\\Jobs\\CreateThread", "App"), has_author];
+        let edges = vec![
+            structural("App\\Models\\Thread", "App\\Concerns\\HasAuthor", EdgeKind::UsesTrait),
+            structural("App\\Jobs\\CreateThread", "App\\Concerns\\HasAuthor", EdgeKind::UsesTrait),
+            reference("App\\Concerns\\HasAuthor", "App\\Models\\Thread", 5),
+        ];
+
+        let verdict = Verdict::of(&laravel(), &classes, &edges);
+        let cycle = &verdict.cycles[0];
+
+        assert!(cycle.folds.is_empty());
+        assert_eq!(cycle.remaining, ["App\\Concerns", "App\\Models"]);
+        assert_eq!(cycle.cut.len(), 1);
+        assert_eq!(cycle.cost.class_edges, 1);
+    }
+
+    #[test]
+    fn among_cuts_of_the_same_weight_the_one_with_fewer_edges_wins() {
+        // The shape of the laravel.io cycle among Models, Enums and Notifications once the model traits
+        // are counted with the models: Enums -> Notifications (2) costs the same as Models -> Enums (1)
+        // plus Notifications -> Enums (1), but is one place to change.
+        let weighted = [
+            ("App\\Models", "App\\Enums", 1),
+            ("App\\Notifications", "App\\Enums", 1),
+            ("App\\Enums", "App\\Notifications", 2),
+            ("App\\Notifications", "App\\Models", 19),
+        ];
+        let modules: BTreeSet<&str> = weighted.iter().flat_map(|(from, to, _)| [*from, *to]).collect();
+        let classes: Vec<ClassNode> = modules.iter().map(|module| declare(&format!("{module}\\A"), "App")).collect();
+        let edges: Vec<Edge> = weighted
+            .iter()
+            .flat_map(|(from, to, weight)| (1..=*weight).map(move |line| reference(&format!("{from}\\A"), &format!("{to}\\A"), line)))
+            .collect();
+
+        let verdict = Verdict::of(&laravel(), &classes, &edges);
+        let cycle = &verdict.cycles[0];
+
+        assert_eq!(cut_of(cycle), ["App\\Enums -> App\\Notifications (2)"]);
+        assert_eq!(cycle.cut[0].edges.len(), 2);
+        assert_eq!(cycle.cut[0].edges.iter().map(|index| edges[*index].to.as_str()).collect::<Vec<_>>(), ["App\\Notifications\\A"; 2]);
+        assert_eq!((cycle.cost.class_edges, cycle.cost.files, cycle.cost.violations), (2, 1, 0));
+    }
+
+    #[test]
+    fn the_cost_of_a_cut_counts_the_rule_violations_it_fixes() {
+        let classes = vec![declare("App\\Jobs\\CreateThread", "App"), declare("App\\Http\\Requests\\ThreadRequest", "App")];
+        let edges = vec![
+            reference("App\\Jobs\\CreateThread", "App\\Http\\Requests\\ThreadRequest", 1),
+            reference("App\\Http\\Requests\\ThreadRequest", "App\\Jobs\\CreateThread", 2),
+            reference("App\\Http\\Requests\\ThreadRequest", "App\\Jobs\\CreateThread", 3),
+        ];
+
+        let verdict = Verdict::of(&laravel(), &classes, &edges);
+        let cycle = &verdict.cycles[0];
+
+        assert_eq!(cut_of(cycle), ["App\\Jobs -> App\\Http (1)"]);
+        assert_eq!(cycle.cut[0].edges, [0]);
+        assert_eq!((cycle.cost.class_edges, cycle.cost.files, cycle.cost.violations), (1, 1, 1));
     }
 }

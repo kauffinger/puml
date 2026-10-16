@@ -1,0 +1,145 @@
+{
+  "about": "Architectural decisions a maintainer makes from puml's output. Each answer was derived by reading the PHP source, not the output. A reader who has only the report, show output and the HTML must reach the answer within one command or view plus two interactions.",
+  "corpora": {
+    "laravelio": "~/src-ref/corpora/laravelio",
+    "framework": "~/src-ref/corpora/laravelio/vendor/laravel/framework"
+  },
+  "decisions": [
+    {
+      "id": "first-cut",
+      "corpus": "laravelio",
+      "question": "Which single module dependency should be removed first? What does removing it fix, and what does it cost?",
+      "answer": "App\\Jobs -> App\\Http. It is seven static constructors `fromRequest(...Request)` on jobs: CreateArticle.php:30, CreateReply.php:24, CreateThread.php:23, RegisterUser.php:21, UpdateArticle.php:27, UpdateProfile.php:29, UpdateThread.php:19. Removing it fixes all seven rule violations (core-independent-of-http) and breaks module cycle 2 (Actions, Filament, Http, Jobs, Providers). Cost: one method in each of seven job files, moved into the request or the controller.",
+      "source": "app/Jobs/*.php fromRequest methods; app/Http/Requests/*",
+      "expect": "report"
+    },
+    {
+      "id": "thread-blast-radius",
+      "corpus": "laravelio",
+      "question": "Which classes outside App\\Models would a change to App\\Models\\Thread's public API touch? Group them by module.",
+      "answer": "29 classes in 11 modules: App\\Jobs 9 (CreateThread, DeleteThread, LikeThread, LockThread, MarkThreadSolution, UnlikeThread, UnlockThread, UnmarkThreadSolution, UpdateThread), App\\Http 5 (TagsController, ThreadsController, HomeController, ReplyController, CreateReplyRequest), Database\\Seeders 4, Database\\Factories 3, App\\Filament 2, App\\Events 1 (ThreadWasCreated), App\\Listeners 1 (SubscribeUsersMentionedInReply), App\\Livewire 1 (LikeThread), App\\Mail 1 (NewReplyEmail), App\\Policies 1 (ThreadPolicy), App\\Providers 1 (AppServiceProvider). SubscriptionController and SendNewReplyNotification name Thread only in @var docblocks and do not count.",
+      "source": "grep -rlE 'App\\\\Models\\\\Thread\\b' app database, minus docblock-only hits",
+      "expect": "show App\\Models\\Thread"
+    },
+    {
+      "id": "jobs-without-http",
+      "corpus": "laravelio",
+      "question": "Can the jobs in App\\Jobs be tested without anything from App\\Http? What is the only coupling between the two?",
+      "answer": "Yes. The only App\\Jobs -> App\\Http coupling is seven `signature` edges, one per `fromRequest()` static constructor; every job constructor takes models and scalars, so handle() runs without a request (tests/Integration/Jobs does exactly this).",
+      "source": "app/Jobs/*.php, tests/Integration/Jobs/*",
+      "expect": "show App\\Jobs App\\Http"
+    },
+    {
+      "id": "new-model-trait",
+      "corpus": "laravelio",
+      "question": "A new trait adds behaviour shared by several models, like slugs or likes. Which module does it belong in, and which existing classes will it sit next to?",
+      "answer": "App\\Concerns, next to HasAuthor, HasLikes, HasMentions, HasSlug, HasTags, HasTimestamps, HasUuid, PreparesSearch, ProvidesSubscriptions and ReceivesReplies. Ten of its twelve traits are used by App\\Models; SendsAlerts and UsesFilters are used by Http, Livewire and Rules classes instead.",
+      "source": "app/Concerns/*.php and their users",
+      "expect": "show App\\Concerns"
+    },
+    {
+      "id": "new-model-contract",
+      "corpus": "laravelio",
+      "question": "A new interface lets a job treat several models alike, like something that can be subscribed to. Which module does it belong in?",
+      "answer": "App\\Contracts: four interfaces (MentionAble, ReplyAble, Spam, SubscriptionAble), all implemented by models, abstractness 1.00.",
+      "source": "app/Contracts/*.php",
+      "expect": "report or show App\\Contracts"
+    },
+    {
+      "id": "cycle-1-real",
+      "corpus": "laravelio",
+      "question": "Is module cycle 1 a problem worth refactoring, or is it App\\Concerns being the models' own traits? Which edges in it, if any, are genuinely questionable?",
+      "answer": "Mostly not a problem. Models <-> Concerns (26 uses-trait one way, relations and signatures back) are the models and their own traits; Models <-> Contracts (implements, and contract signatures that name models) and Models <-> Exceptions (Thread throws CouldNotMarkReplyAsSolution, which takes a Reply) are the same unit. The genuinely questionable edges are Models -> Policies (User::isAdmin() reads UserPolicy::ADMIN, app/Models/User.php:539), Enums -> Notifications (NotificationType::getClass() names two notification classes, app/Enums/NotificationType.php:5-6) and Models -> Enums (User.php:533). Remove those and treat Concerns, Contracts and Exceptions as part of Models and no cycle is left. A cut that includes App\\Concerns -> App\\Models (17) is not an action anyone should take.",
+      "source": "app/Models/User.php, app/Enums/NotificationType.php, app/Concerns/*.php, app/Contracts/*.php, app/Exceptions/CouldNotMarkReplyAsSolution.php",
+      "expect": "report"
+    },
+    {
+      "id": "most-expensive-module",
+      "corpus": "laravelio",
+      "question": "Which module is the most expensive to change, and what do its Ca, Ce and I say about it in one sentence?",
+      "answer": "App\\Models: 133 classes in other app modules use it (Ca) while it uses 17 (Ce), so with I 0.11 almost everything depends on it and it depends on little, and any change ripples outward.",
+      "source": "count of app classes importing App\\Models\\*",
+      "expect": "report MODULES"
+    },
+    {
+      "id": "violations-one-pattern",
+      "corpus": "laravelio",
+      "question": "How many rule violations are there, and are they one mistake repeated or several different ones?",
+      "answer": "Seven, all core-independent-of-http, all the same pattern: a job's static constructor typed on a form request.",
+      "source": "app/Jobs/*.php",
+      "expect": "report"
+    },
+    {
+      "id": "http-to-providers",
+      "corpus": "laravelio",
+      "question": "App\\Http depends on App\\Providers. What is behind it, and does it matter?",
+      "answer": "Four auth controllers set `$redirectTo = AppServiceProvider::HOME` (LoginController.php:31, RegisterController.php:38, ResetPasswordController.php:31, VerificationController.php:34). It breaks no rule. It is one of the edges that keep App\\Providers inside cycle 2 (Providers -> Filament -> Jobs -> Http -> Providers); once Jobs -> Http is gone it is harmless.",
+      "source": "app/Http/Controllers/Auth/*.php",
+      "expect": "show App\\Http App\\Providers"
+    },
+    {
+      "id": "extract-markdown",
+      "corpus": "laravelio",
+      "question": "Could App\\Markdown be extracted into its own package? What inside the app does it depend on?",
+      "answer": "Nearly. Nothing in the app depends on it (Ca 0). It depends on three app classes, all in the App root: Crawler, EmbedExtension and OscaroteroEmbedAdapter (MarkdownServiceProvider.php:5-7), plus nine vendor classes. Move those three with it and it stands alone.",
+      "source": "app/Markdown/*.php",
+      "expect": "show App\\Markdown"
+    },
+    {
+      "id": "which-cycle-first",
+      "corpus": "laravelio",
+      "question": "Which module cycle should be fixed first, and why?",
+      "answer": "Cycle 2: a single edge (App\\Jobs -> App\\Http, 7 class edges) breaks it and that edge carries all seven rule violations. Cycle 1 is mostly the models and their parts (Concerns traits and Contracts interfaces used by models only); what is left needs three small edges (Exceptions -> Models, Models -> Policies, Enums -> Notifications: 4 class edges in 3 files) and fixes no rule violation.",
+      "source": "see first-cut and cycle-1-real",
+      "expect": "report"
+    },
+    {
+      "id": "busiest-controller",
+      "corpus": "laravelio",
+      "question": "ThreadsController has the highest fan-out (17). What is that fan-out made of, and does it mean the controller does too much?",
+      "answer": "Ten jobs (CreateThread, DeleteThread, LockThread, MarkThreadSolution, ReportSpam, SubscribeToSubscriptionAble, UnlockThread, UnmarkThreadSolution, UnsubscribeFromSubscriptionAble, UpdateThread), four models (Reply, Tag, Thread, User), ThreadPolicy, ThreadDeletedNotification and the UsesFilters trait. It is one job per action: wide but shallow, and not a reason to split it.",
+      "source": "app/Http/Controllers/Forum/ThreadsController.php",
+      "expect": "show App\\Http\\Controllers\\Forum\\ThreadsController"
+    },
+    {
+      "id": "livewire-filament-layer",
+      "corpus": "laravelio",
+      "question": "Are the Livewire and Filament classes judged as entry points (like Http) or as core? Does any of them break a rule?",
+      "answer": "They are in the http layer (App\\Filament 18 classes, App\\Livewire 9, App\\View 1, beside App\\Http 46). None of them breaks a rule; Filament -> Jobs and Livewire -> Jobs/Models are allowed directions.",
+      "source": "extractor layer definition; app/Filament, app/Livewire",
+      "expect": "report LAYERS"
+    },
+    {
+      "id": "model-blast-radius",
+      "corpus": "framework",
+      "question": "A change to Illuminate\\Database\\Eloquent\\Model's public API touches which framework modules outside Illuminate\\Database, and about how many classes in each?",
+      "answer": "30 classes in 11 modules: Illuminate\\Contracts 6, Illuminate\\Foundation 4, Illuminate\\Notifications 4, Illuminate\\Support\\Facades 4, Illuminate\\Validation 3, Illuminate\\Auth 2, Illuminate\\Http 2, Illuminate\\Testing 2, Illuminate\\Pagination 1, Illuminate\\Queue 1, Illuminate\\Routing 1.",
+      "source": "grep -rlE 'Database\\\\Eloquent\\\\Model\\b' src/Illuminate minus Database, stubs and docblock-only hits",
+      "expect": "show Illuminate\\Database\\Eloquent\\Model"
+    },
+    {
+      "id": "eloquent-knows-http",
+      "corpus": "framework",
+      "question": "Does Eloquent depend on Illuminate\\Http? If so, where, and is it a single place?",
+      "answer": "Yes, in exactly one place: JsonEncodingException::forResource() takes a JsonResource, src/Illuminate/Database/Eloquent/JsonEncodingException.php:24.",
+      "source": "src/Illuminate/Database/Eloquent/JsonEncodingException.php",
+      "expect": "show Illuminate\\Database\\Eloquent Illuminate\\Http"
+    },
+    {
+      "id": "relations-need-model",
+      "corpus": "framework",
+      "question": "Do the Eloquent Relations depend on Model through an interface or on the concrete class? Could Relations be separated from Model?",
+      "answer": "On the concrete class: 40 class edges from 20 relation classes (injects, property, signature, static); no interface sits between them, so they cannot be separated.",
+      "source": "src/Illuminate/Database/Eloquent/Relations/*.php",
+      "expect": "show Illuminate\\Database\\Eloquent\\Relations Illuminate\\Database\\Eloquent\\Model"
+    },
+    {
+      "id": "database-undeclared",
+      "corpus": "framework",
+      "question": "illuminate/database is published standalone. Its composer.json requires support, contracts, container, collections and macroable, and suggests console, events, filesystem and pagination. Which Illuminate modules does Illuminate\\Database depend on beyond those, and through how many class edges?",
+      "answer": "Illuminate\\Broadcasting 4, Illuminate\\Encryption 3, Illuminate\\Support\\Facades 2 (part of illuminate/support), Illuminate\\Config 1, Illuminate\\Hashing 1, Illuminate\\Http 1, Illuminate\\Queue 1. Declared or suggested: Support 200, Contracts 126, Console 37, Pagination 19, Support\\Traits 16, Filesystem 16, Container 5, Events 3.",
+      "source": "src/Illuminate/Database/composer.json versus use statements in src/Illuminate/Database",
+      "expect": "show Illuminate\\Database"
+    }
+  ]
+}

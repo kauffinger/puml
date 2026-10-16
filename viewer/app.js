@@ -966,15 +966,61 @@ function moduleCycleList() {
         return '';
     }
 
+    const count = (number, noun) => `${number} ${noun}${number === 1 ? '' : noun.endsWith('s') ? 'es' : 's'}`;
+
     const items = cycles.map((cycle, position) => {
-        const cut = cycle.cut.map((edge) => `${escapeHtml(edge.from)} → ${escapeHtml(edge.to)} <span class="muted">${edge.weight}</span>`).join(', ');
+        const lines = [`<b>Cycle ${position + 1}</b>: ${cycle.modules.map((id) => namespaceLink(id)).join(', ')}`];
 
-        const cutLabel = cycle.exact ? 'cheapest cut' : 'a cut that breaks it (too many modules to find the cheapest)';
+        if (cycle.folds.length > 0) {
+            const groups = new Map();
 
-        return `<li><b>Cycle ${position + 1}</b>: ${cycle.modules.map((id) => namespaceLink(id)).join(', ')}<br><span class="muted">${cutLabel}: ${cut}</span></li>`;
+            for (const fold of cycle.folds) {
+                const key = `${fold.into}\u0000${fold.module}\u0000${fold.kind}`;
+                const name = fold.class.startsWith(`${fold.module}\\`) ? fold.class.slice(fold.module.length + 1) : fold.class;
+
+                groups.set(key, [...(groups.get(key) ?? []), name]);
+            }
+
+            const parts = [...groups].map(([key, names]) => {
+                const [into, module, kind] = key.split('\u0000');
+                const listed = cycle.folds.length <= 20 ? `: ${names.map((name) => `<code>${escapeHtml(name)}</code>`).join(', ')}` : '';
+
+                return `${namespaceLink(into)} owns ${count(names.length, kind)} from ${namespaceLink(module)}${listed}`;
+            });
+
+            lines.push(`<span class="muted">Parts of another module, counted there (a trait, interface or abstract class used by one other module only):</span>`);
+            lines.push(`<ul class="evidence">${parts.map((part) => `<li>${part}</li>`).join('')}</ul>`);
+
+            if (cycle.remaining.length < cycle.modules.length) {
+                lines.push(`<span class="muted">Counted that way, still in a cycle:</span> ${cycle.remaining.map((id) => namespaceLink(id)).join(', ')}`);
+            }
+        }
+
+        const cutLabel = cycle.exact ? 'Cheapest cut' : 'A cut that breaks it (too many modules to find the cheapest)';
+        const cost = `${count(cycle.cost.class_edges, 'class edge')} in ${count(cycle.cost.files, 'file')}, fixes ${count(cycle.cost.violations, 'rule violation')}`;
+        const shown = cycle.exact ? cycle.cut : cycle.cut.slice(0, 12);
+
+        const rows = shown.map((edge) => {
+            const underlying = cycle.exact ? (edge.edges ?? []).slice(0, 10).map((position) => `<li>${violationRow(index.graph.edges[position])}</li>`) : [];
+
+            if (cycle.exact && (edge.edges ?? []).length > 10) {
+                underlying.push(`<li class="muted">… ${edge.edges.length - 10} more</li>`);
+            }
+
+            return `<li>${namespaceLink(edge.from)} → ${namespaceLink(edge.to)} <span class="muted">${edge.weight}</span>${underlying.length ? `<ul class="evidence">${underlying.join('')}</ul>` : ''}</li>`;
+        });
+
+        if (shown.length < cycle.cut.length) {
+            rows.push(`<li class="muted">… ${cycle.cut.length - shown.length} more edges in the cut</li>`);
+        }
+
+        lines.push(`<span class="muted">${cutLabel}: ${cost}</span>`);
+        lines.push(`<ul class="evidence">${rows.join('')}</ul>`);
+
+        return `<li>${lines.join('<br>')}</li>`;
     });
 
-    return `<details><summary>${cycles.length} module cycle${cycles.length === 1 ? '' : 's'} among app modules</summary><p class="muted">${escapeHtml(cycleRule.why)}</p><ul>${items.join('')}</ul></details>`;
+    return `<details open><summary>${cycles.length} module cycle${cycles.length === 1 ? '' : 's'} among app modules</summary><p class="muted">${escapeHtml(cycleRule.why)}</p><ul>${items.join('')}</ul></details>`;
 }
 
 let metricsById = null;

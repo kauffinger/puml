@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { DEFAULT_BUDGETS, indexGraph, project } from '../viewer/model.js';
+import { DEFAULT_BUDGETS, indexGraph, moduleOf, project } from '../viewer/model.js';
 import { extract, readJson, repository } from './support.js';
 
 const blog = indexGraph(extract(`${repository}fixtures/blog`));
@@ -170,3 +170,68 @@ test('the cheapest cut weighs the same as a brute-force minimum on the fixtures'
         }
     }
 });
+
+for (const [name, index] of Object.entries(graphs)) {
+    const { graph } = index;
+    const home = new Map();
+
+    for (const cycle of moduleCycles(index)) {
+        for (const fold of cycle.folds) {
+            home.set(fold.class, fold.into);
+        }
+    }
+
+    const moduleWithFolds = (id) => home.get(id) ?? moduleOf(index.classes.get(id)).id;
+
+    test(`${name}: every fold is a trait, interface or abstract class whose users all belong to the module it is counted in`, () => {
+        for (const cycle of moduleCycles(index)) {
+            for (const fold of cycle.folds) {
+                const cls = index.classes.get(fold.class);
+                const users = graph.edges.filter((edge) => edge.to === fold.class && ['extends', 'implements', 'uses-trait'].includes(edge.kind));
+
+                assert.ok(cls.kind === 'trait' || cls.kind === 'interface' || cls.abstract === true, fold.class);
+                assert.equal(moduleOf(cls).id, fold.module, fold.class);
+                assert.notEqual(fold.into, fold.module, fold.class);
+                assert.equal(users.length, fold.users, fold.class);
+                assert.ok(users.length > 0, fold.class);
+                assert.ok(users.every((edge) => moduleWithFolds(edge.from) === fold.into), fold.class);
+            }
+        }
+    });
+
+    test(`${name}: the cut edges carry exactly the class edges behind them, and the cost sums them`, () => {
+        for (const cycle of moduleCycles(index)) {
+            const modules = new Set(cycle.modules);
+            let classEdges = 0;
+            let violations = 0;
+            const files = new Set();
+
+            for (const edge of cycle.cut) {
+                const behind = graph.edges
+                    .map((candidate, position) => ({ candidate, position }))
+                    .filter(({ candidate }) => moduleWithFolds(candidate.from) === edge.from && moduleWithFolds(candidate.to) === edge.to)
+                    .filter(({ candidate }) => !index.classes.get(candidate.from).external || index.classes.get(candidate.from).root != null)
+                    .filter(({ candidate }) => !index.classes.get(candidate.to).external || index.classes.get(candidate.to).root != null)
+                    .map(({ position }) => position);
+
+                assert.ok(modules.has(edge.from) && modules.has(edge.to), `${edge.from} -> ${edge.to}`);
+                assert.deepEqual([...edge.edges].sort((a, b) => a - b), behind.sort((a, b) => a - b), `${edge.from} -> ${edge.to}`);
+                assert.equal(edge.weight, edge.edges.length);
+
+                classEdges += edge.weight;
+                violations += edge.violations;
+
+                for (const position of edge.edges) {
+                    for (const place of graph.edges[position].evidence) {
+                        files.add(place.file);
+                    }
+                }
+            }
+
+            assert.deepEqual(cycle.cost, { class_edges: classEdges, files: files.size, violations });
+            assert.ok(cycle.remaining.length > 1);
+            assert.ok(cycle.remaining.every((id) => modules.has(id)));
+            assert.ok(cycle.edges.every((edge) => cycle.remaining.includes(edge.from) && cycle.remaining.includes(edge.to)));
+        }
+    });
+}
