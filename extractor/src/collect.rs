@@ -181,6 +181,28 @@ impl WalkContext<'_, '_> {
         }
     }
 
+    /// Methods get their signature edges from mago's codebase metadata; closures and arrow functions are
+    /// not in it, so their written hints are resolved here.
+    fn signature(&mut self, parameters: &FunctionLikeParameterList<'_>, returns: Option<&FunctionLikeReturnTypeHint<'_>>) {
+        let mut identifiers = Vec::new();
+
+        for parameter in parameters.parameters.iter() {
+            if let Some(hint) = &parameter.hint {
+                hint_identifiers(hint, &mut identifiers);
+            }
+        }
+
+        if let Some(returns) = returns {
+            hint_identifiers(&returns.hint, &mut identifiers);
+        }
+
+        for identifier in identifiers {
+            let name = self.name_of(identifier);
+
+            self.edge(name, EdgeKind::Signature, None, identifier.offset());
+        }
+    }
+
     fn class_expression(&self, expression: &Expression<'_>) -> Option<String> {
         match expression {
             Expression::Identifier(identifier) => Some(self.name_of(identifier)),
@@ -326,6 +348,14 @@ impl<'ast, 'arena> Walker<'ast, 'arena, WalkContext<'_, 'arena>> for EdgeWalker 
         if let Some(name) = context.class_expression(binary.rhs) {
             context.edge(name, EdgeKind::Reference, None, binary.rhs.offset());
         }
+    }
+
+    fn walk_in_closure(&self, closure: &'ast Closure<'arena>, context: &mut WalkContext<'_, 'arena>) {
+        context.signature(&closure.parameter_list, closure.return_type_hint.as_ref());
+    }
+
+    fn walk_in_arrow_function(&self, function: &'ast ArrowFunction<'arena>, context: &mut WalkContext<'_, 'arena>) {
+        context.signature(&function.parameter_list, function.return_type_hint.as_ref());
     }
 
     fn walk_in_try_catch_clause(&self, clause: &'ast TryCatchClause<'arena>, context: &mut WalkContext<'_, 'arena>) {

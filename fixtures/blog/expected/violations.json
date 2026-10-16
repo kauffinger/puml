@@ -1,0 +1,29 @@
+{
+    "violations": [
+        "console-independent-of-http App\\Console\\Commands\\PrunePosts -> App\\Http\\Controllers\\PostController signature @app/Console/Commands/PrunePosts.php:11",
+        "core-independent-of-console App\\Models\\Post -> App\\Console\\Commands\\PrunePosts reference @app/Models/Post.php:23",
+        "core-independent-of-http App\\Jobs\\PublishPost -> App\\Http\\Requests\\StorePostRequest signature @app/Jobs/PublishPost.php:15",
+        "core-independent-of-http App\\Models\\Post -> App\\Http\\Controllers\\PostController static @app/Models/Post.php:18",
+        "events-independent-of-listeners App\\Events\\PostPublished -> App\\Listeners\\NotifyAuthor reference @app/Events/PostPublished.php:16",
+        "http-independent-of-console App\\Http\\Controllers\\PostController -> App\\Console\\Commands\\PrunePosts reference @app/Http/Controllers/PostController.php:26"
+    ],
+    "cycles": [
+        ["App\\Console", "App\\Events", "App\\Http", "App\\Jobs", "App\\Listeners", "App\\Models"]
+    ],
+    "metrics": {
+        "App\\Models": { "classes": 2, "afferent": 6, "efferent": 2, "instability": 0.25, "abstractness": 0, "distance": 0.75, "cycle": 1 },
+        "App\\Http": { "classes": 2, "afferent": 4, "efferent": 3, "instability": 0.4286, "abstractness": 0, "distance": 0.5714, "cycle": 1 },
+        "App\\Providers": { "classes": 1, "afferent": 0, "efferent": 2, "instability": 1, "abstractness": 0, "distance": 0, "cycle": null },
+        "Database\\Seeders": { "classes": 1, "afferent": 0, "efferent": 1, "instability": 1, "abstractness": 0, "distance": 0, "cycle": null }
+    },
+    "layers": {
+        "App\\Console": "console",
+        "App\\Events": "core",
+        "App\\Http": "http",
+        "App\\Jobs": "core",
+        "App\\Listeners": "core",
+        "App\\Models": "core",
+        "App\\Providers": "providers",
+        "Database\\Seeders": "database"
+    }
+}

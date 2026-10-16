@@ -20,6 +20,8 @@ use crate::graph::Unresolved;
 use crate::laravel::FacadeResolver;
 use crate::laravel::FacadeTarget;
 use crate::project::Project;
+use crate::verdict::Verdict;
+use crate::verdict::place_of;
 
 const PSEUDO_TYPES: &[&str] = &["self", "static", "parent", "$this"];
 
@@ -171,17 +173,25 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
 
     classes.extend(externals.into_values());
 
+    for class in &mut classes {
+        class.layer = place_of(class).layer;
+    }
+
+    let packages: Vec<Package> = packages.into_iter().collect();
+    let verdict = Verdict::of(&packages, &classes, &edges);
+
     Graph {
         version: FORMAT_VERSION,
         project: project.name.clone(),
         path: project.root.to_string_lossy().into_owned(),
         generator: format!("puml-extract {} (mago 1.54.0)", env!("CARGO_PKG_VERSION")),
         roots: project.psr4.iter().map(|root| root.prefix.clone()).collect(),
-        packages: packages.into_iter().collect(),
+        packages,
         classes,
         edges,
         unresolved,
         stats,
+        verdict,
     }
 }
 

@@ -14,6 +14,8 @@ const relate = (from, to, kind) => ({ from, to, kind, evidence: [{ file: 'app.ph
 
 const index = indexGraph({
     roots: ['App'],
+    packages: [{ name: 'app', kind: 'app' }],
+    verdict: { violations: [] },
     classes: [
         'App\\Http\\Kernel',
         'App\\Http\\Controllers\\UserController',

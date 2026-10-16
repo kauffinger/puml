@@ -9,13 +9,19 @@ browser.
 
 ```
 extractor/   puml-extract (Rust, links mago 1.54.0)
-viewer/      index.html, app.js (rendering), model.js (levels, aggregation, cycles, budgets)
+viewer/      index.html, app.js (rendering), model.js (levels, aggregation, cycles, budgets, rules, metrics)
+cli/         puml.js: the same verdict as text, for terminals and agents
 fixtures/    shop: a small fixture app with a hand-written expected graph
-tests/       golden, invariant, drill, cycle and edge-budget tests on the JSON contract (node --test)
-verify/      PHP judges that compare a graph with what PHP itself reports
+             blog: a fixture with seeded rule violations and a module cycle, with hand-written expected/violations.json
+tests/       golden, invariant, drill, cycle, edge-budget and rule tests on the JSON contract (node --test)
+verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
 ```
 
 ## Usage
+
+Prebuilt `puml-extract` binaries for Linux (x86_64, aarch64, static musl) and macOS (Apple Silicon,
+Intel) are attached to every [GitHub release](https://github.com/kauffinger/puml/releases). To build it
+yourself:
 
 ```sh
 cargo build --release --manifest-path extractor/Cargo.toml
@@ -29,6 +35,79 @@ scans the `autoload-dev` roots. While working on the viewer, serve the repositor
 change it.
 
 The view state lives in the URL hash, for example `#level=2&focus=App%5CModels&budget=30&kinds=extends,relation`.
+
+## Architecture verdict without a browser
+
+```sh
+puml-extract report path/to/app                       # the whole verdict
+puml-extract show path/to/app 'App\Models'            # a module, namespace or class
+puml-extract show path/to/app 'App\Jobs' 'App\Http'   # one aggregated edge, with every class pair and file:line
+```
+
+`report` prints every rule violation with its `file:line`, every module cycle with the edges that close it
+and the cheapest cut that breaks it, a metrics table per app module, fan-out outliers, the layer of
+every module and the extractor's unresolved references. The cut is the exact minimum (a minimum
+feedback arc set) for cycles of up to 12 modules; larger cycles get a greedy cut labelled as such. Output is sorted and stable, so two runs diff
+cleanly. `show` drills into one node or edge the way a click does in the viewer. Both extract first and
+take `--dev` like the extraction does.
+
+The verdict is judged once, in `extractor/src/verdict.rs`, and written into the graph JSON, so the
+viewer and `report` read the same violations, cycles and metrics and never disagree.
+
+### Rules
+
+The rules describe a conventional Laravel application and come from the Laravel documentation on the
+directory structure, which calls `Http` and `Console` "an API into the core of your application" that
+"do not actually contain application logic", and describes listeners as receiving events. A class is
+placed in a layer by the first namespace segment under its PSR-4 root:
+
+| layer | segments |
+|---|---|
+| `http` | `Http`, `Livewire`, `Filament`, `Nova`, `View` |
+| `console` | `Console` |
+| `providers` | `Providers` |
+| `database` | roots starting with `Database` |
+| `tests` | root `Tests` |
+| `core` | everything else |
+
+| rule | forbids |
+|---|---|
+| `core-independent-of-http` | core → http |
+| `core-independent-of-console` | core → console |
+| `http-independent-of-console` | http → console |
+| `console-independent-of-http` | console → http |
+| `events-independent-of-listeners` | `Events` → `Listeners` inside core |
+| `no-module-cycles` | a cycle between app modules |
+
+Providers, database and tests may depend on anything, and anything may depend on providers: the stock
+Breeze controllers reference `AppServiceProvider::HOME`. Vendor classes are never part of a rule. The
+rules are only checked when the project depends on `laravel/framework`; `laravel/framework` itself has
+an `Illuminate\Http` namespace and would fail every one of them.
+
+A fresh `laravel/laravel` skeleton produces zero violations and zero cycles. `fixtures/blog` seeds six
+violations and one cycle and is golden-tested against `fixtures/blog/expected/violations.json`.
+
+### Metrics
+
+Per app module, following Martin's *Agile Software Development*: `Ca` and `Ce` (classes in other app
+modules that use, or are used by, the module), instability `I = Ce / (Ca + Ce)`, abstractness `A`
+(abstract classes and interfaces over classes), distance from the main sequence `D = |A + I - 1|`, the
+number of vendor classes used, and cycle membership. A class's fan-out is the number of distinct app
+classes it uses outside its own module; outliers are above `mean + 2 sd` (and at least 5).
+
+### Checked against deptrac
+
+`verify/deptrac-config.js` writes a [deptrac](https://github.com/deptrac/deptrac) configuration from
+the rule table in a graph's verdict, and `verify/deptrac.js` compares deptrac's JSON report with puml's violations by
+file, line and class pair:
+
+```sh
+node verify/deptrac-config.js out/app.json path/to/app > /tmp/deptrac/app.php
+(cd /tmp/deptrac && vendor/bin/deptrac analyse -c app.php --formatter json --output app.json --no-progress --no-cache)
+node verify/deptrac.js out/app.json /tmp/deptrac/app.json path/to/app
+```
+
+On laravel.io both tools report the same 7 violations at the same lines; on `fixtures/blog` the same 6.
 
 ## Why the crates and not the `mago` CLI
 
@@ -130,7 +209,7 @@ Every edge comes from a name that mago resolved; none come from regular expressi
 | `extends`, `implements`, `uses-trait` | class declarations |
 | `injects` | constructor parameter types, including promoted properties |
 | `property` | property types, native and `@var` |
-| `signature` | parameter and return types of other methods, native and PHPDoc, including generic arguments |
+| `signature` | parameter and return types of other methods, closures and arrow functions, native and PHPDoc, including generic arguments |
 | `relation` | `$this->hasMany(Post::class)` and the other Eloquent relation methods, read from the method body; labelled `posts(): HasMany` |
 | `new` | `new Foo` |
 | `static` | `Foo::bar()`, `Foo::CONST`, `Foo::$prop` |
@@ -147,12 +226,17 @@ Facades are resolved from `getFacadeAccessor()`:
 Anything that cannot be resolved statically goes into the graph's `unresolved` list with its
 `file:line`. Such cases are never guessed.
 
-## Graph JSON (version 1)
+## Graph JSON (version 2)
 
 ```
-{ version, project, path, generator, roots, packages, classes, edges, unresolved, stats }
+{ version, project, path, generator, roots, packages, classes, edges, unresolved, stats, verdict }
+class: { id, name, namespace, package, root, kind, external, layer, ... }
 edge: { from, to, kind, label?, evidence: [{ file, line }] }
+verdict: { rules_apply, rules_scope, rules, cycle_rule, layer_segments, violations: [{ rule, edge }],
+           cycles, modules, fan_out, outliers, layers }
 ```
+
+A violation's `edge` is an index into `edges`.
 
 The JSON is the contract under test. `fixtures/shop/expected/` holds the hand-written expected graph,
 and the expected projection at each level.
@@ -174,6 +258,21 @@ php verify/facades.php     out/app.json path/to/app
 | `relations.php` | `php artisan model:show --json` for every model, by relation name, relation type and related class (run it from the app root, with a working database connection) |
 | `facades.php` | the class each facade resolves to at runtime in the booted app |
 
+## Releasing
+
+CI (`.github/workflows/ci.yml`) builds the extractor and runs `cargo test` and `pnpm test` on every
+push and pull request. It has no corpora, so the laravel.io and framework invariants are skipped there.
+
+To release, bump `version` in `extractor/Cargo.toml`, commit, and push a matching tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+`.github/workflows/release.yml` fails if the tag and the crate version differ, builds the four binaries
+and publishes a GitHub release with the archives, `SHA256SUMS` and generated notes.
+
 ## Dependencies
 
 Every dependency here was at least 7 days old when it was added:
@@ -184,3 +283,4 @@ Every dependency here was at least 7 days old when it was added:
 - **Composer** (2.10) has no release-age setting either. Corpora without a committed lock were resolved
   with `composer update --no-install`. Any package younger than 7 days was then pinned with `--with
   vendor/package:version` before installing.
+- **GitHub Actions** are pinned to the commit of a release that was at least 7 days old.

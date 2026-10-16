@@ -29,6 +29,10 @@
  * the heaviest edge of each node, so no node loses all of its edges, then cycle edges before the others,
  * each by weight, until the budget is reached. Hidden edges stay in the projection and are listed, never
  * dropped.
+ *
+ * Architecture rules, module cycles and coupling metrics are not computed here: puml-extract judges them
+ * once and writes them into the graph as `verdict` (extractor/src/verdict.rs), so the viewer and
+ * `puml-extract report` never disagree.
  */
 
 export const DEFAULT_BUDGETS = { 1: 40, 2: 40, 3: 24 };
@@ -60,7 +64,9 @@ export function indexGraph(graph) {
         push(incoming, edge.to, edge);
     }
 
-    return { graph, classes, modules, moduleIds: new Set([...modules.values()].map((module) => module.id)), namespaces: namespaceTree(graph), outgoing, incoming };
+    const violating = new Map(graph.verdict.violations.map((violation) => [graph.edges[violation.edge], violation.rule]));
+
+    return { graph, classes, modules, moduleIds: new Set([...modules.values()].map((module) => module.id)), namespaces: namespaceTree(graph), outgoing, incoming, violating };
 }
 
 function namespaceTree(graph) {
@@ -256,7 +262,7 @@ export function project(index, view) {
             }
         }
 
-        aggregate(edges, from.id, to.id, edge);
+        aggregate(edges, from.id, to.id, edge, index);
     }
 
     markCycles([...nodes.values()], [...edges.values()]);
@@ -280,7 +286,7 @@ function projectEdge(index, view) {
             }
         }
 
-        aggregate(edges, edge.from, edge.to, edge);
+        aggregate(edges, edge.from, edge.to, edge, index);
     }
 
     markCycles([...nodes.values()], [...edges.values()]);
@@ -290,17 +296,21 @@ function projectEdge(index, view) {
     return { level: base.level, focus: base.focus, budget: base.budget, edge: { from: view.edge.from, to: view.edge.to, weight: drilled?.weight ?? 0 }, ...projection };
 }
 
-function aggregate(edges, from, to, edge) {
+function aggregate(edges, from, to, edge, index) {
     const key = `${from}\u0000${to}`;
 
     if (!edges.has(key)) {
-        edges.set(key, { id: key, from, to, weight: 0, kinds: {}, edges: [], cycle: false });
+        edges.set(key, { id: key, from, to, weight: 0, kinds: {}, edges: [], cycle: false, violations: 0 });
     }
 
     const projected = edges.get(key);
     projected.weight++;
     projected.kinds[edge.kind] = (projected.kinds[edge.kind] ?? 0) + 1;
     projected.edges.push(edge);
+
+    if (index.violating.has(edge)) {
+        projected.violations++;
+    }
 }
 
 function nodeMapper(index, level, focus, vendor) {
@@ -492,13 +502,14 @@ function enforceBudget(nodes, edges, budget, protect) {
         const key = `${from}\u0000${to}`;
 
         if (!rerouted.has(key)) {
-            rerouted.set(key, { id: key, from, to, weight: 0, kinds: {}, edges: [], cycle: false });
+            rerouted.set(key, { id: key, from, to, weight: 0, kinds: {}, edges: [], cycle: false, violations: 0 });
         }
 
         const target = rerouted.get(key);
         target.weight += edge.weight;
         target.edges.push(...edge.edges);
         target.cycle ||= edge.cycle;
+        target.violations += edge.violations;
 
         for (const [kind, count] of Object.entries(edge.kinds)) {
             target.kinds[kind] = (target.kinds[kind] ?? 0) + count;

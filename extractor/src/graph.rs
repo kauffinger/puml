@@ -1,6 +1,8 @@
 use serde::Serialize;
 
-pub const FORMAT_VERSION: u32 = 1;
+use crate::verdict::Verdict;
+
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize)]
 pub struct Graph {
@@ -14,6 +16,7 @@ pub struct Graph {
     pub edges: Vec<Edge>,
     pub unresolved: Vec<Unresolved>,
     pub stats: Stats,
+    pub verdict: Verdict,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,6 +43,7 @@ pub struct ClassNode {
     pub root: Option<String>,
     pub kind: &'static str,
     pub external: bool,
+    pub layer: &'static str,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub r#abstract: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -78,6 +82,7 @@ impl ClassNode {
             root: None,
             kind: "class",
             external: true,
+            layer: "vendor",
             r#abstract: false,
             r#final: false,
             file: None,
@@ -149,6 +154,24 @@ pub enum EdgeKind {
     Static,
     Facade,
     Reference,
+}
+
+impl EdgeKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            EdgeKind::Extends => "extends",
+            EdgeKind::Implements => "implements",
+            EdgeKind::UsesTrait => "uses-trait",
+            EdgeKind::Injects => "injects",
+            EdgeKind::Property => "property",
+            EdgeKind::Signature => "signature",
+            EdgeKind::Relation => "relation",
+            EdgeKind::New => "new",
+            EdgeKind::Static => "static",
+            EdgeKind::Facade => "facade",
+            EdgeKind::Reference => "reference",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

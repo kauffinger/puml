@@ -398,6 +398,10 @@ function edgeAttributes(edge, projection) {
         Object.assign(attributes, { color: '"#d64545"', fontcolor: '"#b42318"' });
     }
 
+    if (edge.violations) {
+        Object.assign(attributes, { color: '"#8250df"', fontcolor: '"#6639ba"', label: dotString(`${classLevel ? describeKinds(edge) : edge.weight} ✗${edge.violations}`) });
+    }
+
     return formatAttributes(attributes);
 }
 
@@ -418,7 +422,9 @@ function edgeTooltip(edge) {
         lines.push(`… ${pairs.length - TOOLTIP_PAIRS} more`);
     }
 
-    return `${edge.weight} × ${describeKinds(edge)}\n${lines.join('\n')}\nclick for evidence, double-click to open these classes`;
+    const broken = edge.violations ? `✗ ${edge.violations} class edge${edge.violations === 1 ? '' : 's'} break${edge.violations === 1 ? 's' : ''} an architecture rule\n` : '';
+
+    return `${broken}${edge.weight} × ${describeKinds(edge)}\n${lines.join('\n')}\nclick for evidence, double-click to open these classes`;
 }
 
 function classPairs(edge) {
@@ -460,7 +466,7 @@ function formatAttributes(attributes) {
 
 // The DOT parser unescapes once and Graphviz then expands \N, \E and friends, so each backslash is doubled twice.
 function dotString(text) {
-    return `"${text.replace(/\\/g, '\\\\\\\\').replace(/"/g, '\\"')}"`;
+    return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 function escapeHtml(text) {
@@ -756,11 +762,13 @@ function updateChrome(view, projection, edges, timing) {
     document.querySelector('#path a[data-up]')?.addEventListener('click', goUp);
 
     const over = projection.nodes.length > projection.budget;
+    const broken = projection.edges.reduce((sum, edge) => sum + edge.violations, 0);
 
     document.getElementById('stats').innerHTML =
         `<span class="${over ? 'warn' : ''}">${projection.nodes.length}/${projection.budget} nodes</span> · ` +
         `${edges.shown.length}/${projection.edges.length} edges drawn` +
         (projection.merged.length ? ` · ${projection.merged.length} merged into "other"` : '') +
+        (broken ? ` · <span class="violation">✗ ${broken} rule violation${broken === 1 ? '' : 's'} in view</span>` : '') +
         ` · projection ${timing.project.toFixed(1)} ms, layout ${timing.layout.toFixed(1)} ms, ` +
         `total ${timing.total.toFixed(1)} ms`;
 }
@@ -880,10 +888,12 @@ function showSummary(projection, edges) {
     setPanel(
         `<h2>${LEVEL_NAMES[projection.level]}${projection.focus ? `: ${escapeHtml(projection.focus)}` : ''}</h2>` +
             `<p class="muted">${rule} Click a node or edge to select it, double-click to open it. Esc goes up.</p>` +
+            architecture(projection) +
             `<h3>Cycles</h3>` +
             (cycles.length
                 ? `<ul>${cycles.map((node) => `<li>${escapeHtml(node.id)}</li>`).join('')}</ul>`
                 : '<p class="muted">No dependency cycles in this view.</p>') +
+            (projection.level === 1 && !projection.edge ? moduleCycleList() : '') +
             hiddenEdges(edges.hidden) +
             (projection.level === 3 && index.classes.get(projection.focus) ? classDetails(index.classes.get(projection.focus)) : '') +
             `<h3>Graph</h3><p class="muted">${index.graph.generator}<br>${index.graph.stats.classes} classes, ` +
@@ -892,6 +902,118 @@ function showSummary(projection, edges) {
             unresolved.map((note) => `<li><span class="kind">${escapeHtml(note.kind)}</span>${escapeHtml(note.detail ?? '')} ${sourceLink(note.file, note.line)}</li>`).join('') +
             '</ul></details>',
     );
+}
+
+function architecture(projection) {
+    const broken = projection.edges.filter((edge) => edge.violations);
+    const total = broken.reduce((sum, edge) => sum + edge.violations, 0);
+    const scope = projection.level === 1 && !projection.edge ? 'in the whole graph' : 'in this view';
+    const { rules_apply: rulesApply, rules_scope: rulesScope, rules } = index.graph.verdict;
+
+    if (!rulesApply) {
+        return `<h3>Rules</h3><p class="muted">Not checked. ${escapeHtml(rulesScope)}</p>`;
+    }
+
+    if (total === 0) {
+        return `<h3>Rules</h3><p class="muted">No architecture rule is broken ${scope}. <span title="${escapeHtml(rules.map((rule) => `${rule.id}: ${rule.why}`).join('\n'))}">${rules.length} rules checked.</span></p>`;
+    }
+
+    const byRule = new Map();
+
+    for (const edge of broken) {
+        for (const underlying of edge.edges) {
+            const rule = index.violating.get(underlying);
+
+            if (rule) {
+                if (!byRule.has(rule)) {
+                    byRule.set(rule, []);
+                }
+
+                byRule.get(rule).push({ underlying, edge });
+            }
+        }
+    }
+
+    const sections = [...byRule]
+        .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+        .map(([rule, hits]) => {
+            const rows = hits
+                .sort((a, b) => a.underlying.from.localeCompare(b.underlying.from) || a.underlying.to.localeCompare(b.underlying.to))
+                .map(({ underlying, edge }) => `<li>${violationRow(underlying)} <a data-edge="${projection.edges.indexOf(edge)}" class="muted">select edge</a></li>`);
+
+            return `<details open><summary><span class="violation">✗ ${hits.length}</span> ${escapeHtml(rule)}</summary><p class="muted">${escapeHtml(rules.find((candidate) => candidate.id === rule).why)}</p><ul class="evidence">${rows.join('')}</ul></details>`;
+        });
+
+    return `<h3>Rules</h3><p><span class="violation">✗ ${total} class edge${total === 1 ? '' : 's'}</span> break${total === 1 ? 's' : ''} an architecture rule ${scope}. Violating edges are drawn in purple.</p>${sections.join('')}`;
+}
+
+function violationRow(edge) {
+    const via = edge.label ? ` <span class="muted">via ${escapeHtml(edge.label)}</span>` : '';
+    const places = edge.evidence.map((place) => sourceLink(place.file, place.line)).join(' ');
+
+    return `${classLink(edge.from, index.classes.get(edge.from).name)} → ${classLink(edge.to, index.classes.get(edge.to).name)} <span class="muted">${edge.kind}</span>${via} ${places}`;
+}
+
+function moduleCycleList() {
+    const { cycles, cycle_rule: cycleRule } = index.graph.verdict;
+
+    if (cycles.length === 0) {
+        return '';
+    }
+
+    const items = cycles.map((cycle, position) => {
+        const cut = cycle.cut.map((edge) => `${escapeHtml(edge.from)} → ${escapeHtml(edge.to)} <span class="muted">${edge.weight}</span>`).join(', ');
+
+        const cutLabel = cycle.exact ? 'cheapest cut' : 'a cut that breaks it (too many modules to find the cheapest)';
+
+        return `<li><b>Cycle ${position + 1}</b>: ${cycle.modules.map((id) => namespaceLink(id)).join(', ')}<br><span class="muted">${cutLabel}: ${cut}</span></li>`;
+    });
+
+    return `<details><summary>${cycles.length} module cycle${cycles.length === 1 ? '' : 's'} among app modules</summary><p class="muted">${escapeHtml(cycleRule.why)}</p><ul>${items.join('')}</ul></details>`;
+}
+
+let metricsById = null;
+
+function metricsOf(id) {
+    metricsById ??= new Map(index.graph.verdict.modules.map((module) => [module.id, module]));
+
+    return metricsById.get(id);
+}
+
+function metricsLine(node) {
+    const cls = index.classes.get(node.id);
+
+    if (cls) {
+        if (cls.external && cls.root == null) {
+            return '';
+        }
+
+        const fanOut = index.graph.verdict.fan_out[cls.id] ?? 0;
+
+        return `<p class="muted">layer <b>${cls.layer}</b> · fan-out ${fanOut} app class${fanOut === 1 ? '' : 'es'} outside its module</p>`;
+    }
+
+    const metrics = metricsOf(node.id);
+
+    if (!metrics) {
+        return '';
+    }
+
+    const sample = index.graph.classes.find((candidate) => !candidate.external && index.modules.get(candidate.id).id === node.id);
+    const number = (value) => (value === null ? '–' : value.toFixed(2));
+    const title = 'Ca, Ce: classes in other app modules using / used by this module. I = Ce/(Ca+Ce). A = abstract classes and interfaces / classes. D = |A+I−1|.';
+
+    return (
+        `<p class="muted" title="${escapeHtml(title)}">layer <b>${sample ? sample.layer : '?'}</b> · ` +
+        `Ca ${metrics.afferent} · Ce ${metrics.efferent} · I ${number(metrics.instability)} · A ${number(metrics.abstractness)} · D ${number(metrics.distance)} · ` +
+        `${metrics.vendor} vendor class${metrics.vendor === 1 ? '' : 'es'}` +
+        (metrics.cycle ? ` · <span class="warn">in module cycle ${metrics.cycle}</span>` : '') +
+        '</p>'
+    );
+}
+
+function violationMark(count) {
+    return count ? ` <span class="violation" title="class edges breaking an architecture rule">✗${count}</span>` : '';
 }
 
 function hiddenEdges(hidden) {
@@ -923,12 +1045,13 @@ function showNode(node, projection) {
     if (cls && (node.kind === 'class' || node.kind === 'uml')) {
         const open = node.kind === 'class' && !cls.external ? `<p><a data-focus="${escapeHtml(cls.id)}">Open its UML</a> <span class="muted">(or double-click)</span></p>` : '';
 
-        return setPanel(`<h2>${escapeHtml(cls.id)}</h2>` + open + dependencies(node, projection) + classDetails(cls));
+        return setPanel(`<h2>${escapeHtml(cls.id)}</h2>` + metricsLine(node) + open + dependencies(node, projection) + classDetails(cls));
     }
 
     setPanel(
         `<h2>${escapeHtml(node.id)}</h2>` +
             `<p>${node.kind}, ${classCount(node)} in this view. <a data-namespace="${escapeHtml(node.id)}">Open it</a> <span class="muted">(or double-click)</span></p>` +
+            metricsLine(node) +
             contents(node.id) +
             dependencies(node, projection),
     );
@@ -964,7 +1087,7 @@ function dependencies(node, projection) {
 
         const rows = edges
             .sort((a, b) => b.weight - a.weight)
-            .map((edge) => `<li><a data-edge="${projection.edges.indexOf(edge)}"><code>${escapeHtml(edge[other])}</code></a> <span class="muted">${edge.weight} · ${escapeHtml(describeKinds(edge))}</span></li>`);
+            .map((edge) => `<li><a data-edge="${projection.edges.indexOf(edge)}"><code>${escapeHtml(edge[other])}</code></a> <span class="muted">${edge.weight} · ${escapeHtml(describeKinds(edge))}</span>${violationMark(edge.violations)}</li>`);
 
         return `<h3>${title}</h3><ul>${rows.join('')}</ul>`;
     };
@@ -1029,12 +1152,15 @@ function showEvidence(edge) {
             const via = underlying.label ? ` <span class="muted">via ${escapeHtml(underlying.label)}</span>` : '';
             const places = underlying.evidence.map((place) => sourceLink(place.file, place.line)).join(' ');
 
-            return `<li><span class="kind">${underlying.kind}</span>${via} ${places}</li>`;
+            const rule = index.violating.get(underlying);
+            const broken = rule ? ` <span class="violation">✗ ${escapeHtml(rule)}</span>` : '';
+
+            return `<li><span class="kind">${underlying.kind}</span>${via} ${places}${broken}</li>`;
         });
 
         return (
             `<li><details${pairs.length <= 3 ? ' open' : ''}><summary>${classLink(pair.from, name(pair.from))} → ${classLink(pair.to, name(pair.to))} ` +
-            `<span class="muted">${escapeHtml(describeKinds(pair))}</span></summary><ul class="evidence">${evidence.join('')}</ul></details></li>`
+            `<span class="muted">${escapeHtml(describeKinds(pair))}</span>${violationMark(pair.edges.filter((underlying) => index.violating.has(underlying)).length)}</summary><ul class="evidence">${evidence.join('')}</ul></details></li>`
         );
     });
 
@@ -1046,6 +1172,7 @@ function showEvidence(edge) {
         `<h2>${escapeHtml(edge.from)} → ${escapeHtml(edge.to)}</h2>` +
             `<p>${edge.weight} class edge${edge.weight === 1 ? '' : 's'} between ${pairs.length} class pair${pairs.length === 1 ? '' : 's'}: ${escapeHtml(describeKinds(edge))}` +
             (edge.cycle ? '<br><b style="color:#b42318">part of a dependency cycle</b>' : '') +
+            (edge.violations ? `<br><b class="violation">✗ ${edge.violations} of them break an architecture rule</b>` : '') +
             `</p>${open}<ul>${rows.join('')}</ul>`,
     );
 }

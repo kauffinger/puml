@@ -1,3 +1,21 @@
+# Working on puml
+
+## Ask the graph before reading source
+
+```sh
+B=extractor/target/release/puml-extract
+L=~/src-ref/corpora/laravelio
+$B report $L
+$B show $L 'App\Models'
+$B show $L 'App\Jobs' 'App\Http'
+```
+
+`report` answers "is this architecture conventional": rule violations with file:line, module cycles with
+the cheapest cut, coupling metrics per module, fan-out outliers. `show` drills into a module, namespace,
+class or edge. Rules, cycles and metrics live in `extractor/src/verdict.rs`, which writes them into the
+graph as `verdict`; the viewer only reads it. Change them there, in its unit tests and in
+`tests/rules.test.js`.
+
 # Verifying puml
 
 A change is not done until the graph is checked against PHP itself and the views have been looked at
@@ -26,6 +44,7 @@ $B fixtures/shop --out /tmp/shop.json --html out/shop.html
 ## Tests
 
 ```sh
+(cd extractor && cargo test --release)
 pnpm test
 ```
 
@@ -57,6 +76,13 @@ cd $L && DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/database.sqlite \
 
 - The bar is precision and recall of 1.0 for `extends`, `implements` and `uses-trait` on both corpora,
   and 34/34 relations on laravel.io.
+- Rule violations are checked against deptrac (installed outside the repository, e.g. `/tmp/puml-deptrac`):
+  `node verify/deptrac-config.js out/laravelio.json $L > /tmp/puml-deptrac/laravelio.php`, run `vendor/bin/deptrac analyse -c
+  laravelio.php --formatter json --output laravelio.json --no-progress --no-cache` there, then
+  `node verify/deptrac.js out/laravelio.json /tmp/puml-deptrac/laravelio.json $L`. The bar is zero lines in
+  "only puml" and "only deptrac" on laravel.io and `fixtures/blog`.
+- The skeleton must report zero violations and zero cycles; `fixtures/blog` must match its
+  `expected/violations.json`. Never edit that file to make a test pass; decide by hand which side is wrong.
 - Any new mismatch is a bug until it is explained. The one known gap is `User::tokens()`, whose related
   class only exists at runtime.
 - The framework run needs `memory_limit=2G`. `relations.php` and `facades.php` boot the app, so they need
