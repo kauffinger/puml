@@ -1,0 +1,114 @@
+{
+    "modules": {
+        "view": { "level": 1 },
+        "nodes": [
+            "module Shop",
+            "module Shop\\Billing",
+            "module Shop\\Catalog",
+            "module Shop\\Orders",
+            "module Shop\\Support",
+            "package acme/payments",
+            "package laravel/framework",
+            "package php"
+        ],
+        "edges": [
+            "Shop -> Shop\\Orders 2",
+            "Shop\\Billing -> Shop\\Orders 2 cycle",
+            "Shop\\Billing -> Shop\\Support 2",
+            "Shop\\Billing -> acme/payments 2",
+            "Shop\\Billing -> php 1",
+            "Shop\\Catalog -> Shop\\Support 3",
+            "Shop\\Catalog -> laravel/framework 3",
+            "Shop\\Orders -> Shop\\Billing 7 cycle",
+            "Shop\\Orders -> Shop\\Catalog 3",
+            "Shop\\Orders -> Shop\\Support 1",
+            "Shop\\Orders -> acme/payments 1",
+            "Shop\\Orders -> laravel/framework 1"
+        ]
+    },
+    "modules-without-vendor": {
+        "view": { "level": 1, "vendor": false },
+        "nodes": [
+            "module Shop",
+            "module Shop\\Billing",
+            "module Shop\\Catalog",
+            "module Shop\\Orders",
+            "module Shop\\Support"
+        ],
+        "edges": [
+            "Shop -> Shop\\Orders 2",
+            "Shop\\Billing -> Shop\\Orders 2 cycle",
+            "Shop\\Billing -> Shop\\Support 2",
+            "Shop\\Catalog -> Shop\\Support 3",
+            "Shop\\Orders -> Shop\\Billing 7 cycle",
+            "Shop\\Orders -> Shop\\Catalog 3",
+            "Shop\\Orders -> Shop\\Support 1"
+        ]
+    },
+    "modules-over-budget": {
+        "view": { "level": 1, "budget": 4 },
+        "nodes": [
+            "module Shop\\Billing",
+            "module Shop\\Catalog",
+            "module Shop\\Orders",
+            "other 5 more"
+        ],
+        "edges": [
+            "Shop\\Billing -> Shop\\Orders 2 cycle",
+            "Shop\\Billing -> other 5",
+            "Shop\\Catalog -> other 6",
+            "Shop\\Orders -> Shop\\Billing 7 cycle",
+            "Shop\\Orders -> Shop\\Catalog 3",
+            "Shop\\Orders -> other 3",
+            "other -> Shop\\Orders 2"
+        ]
+    },
+    "classes-of-orders": {
+        "view": { "level": 2, "focus": "Shop\\Orders" },
+        "nodes": [
+            "class Shop\\Orders\\Order",
+            "class Shop\\Orders\\OrderService",
+            "class Shop\\Orders\\OrderStatus",
+            "module Shop",
+            "module Shop\\Billing",
+            "module Shop\\Catalog",
+            "module Shop\\Support",
+            "package acme/payments",
+            "package laravel/framework"
+        ],
+        "edges": [
+            "Shop -> Shop\\Orders\\OrderService 2",
+            "Shop\\Billing -> Shop\\Orders\\Order 2 cycle",
+            "Shop\\Orders\\Order -> Shop\\Billing 1 cycle",
+            "Shop\\Orders\\Order -> Shop\\Catalog 2",
+            "Shop\\Orders\\Order -> Shop\\Orders\\OrderStatus 2",
+            "Shop\\Orders\\Order -> Shop\\Support 1",
+            "Shop\\Orders\\Order -> laravel/framework 1",
+            "Shop\\Orders\\OrderService -> Shop\\Billing 6",
+            "Shop\\Orders\\OrderService -> Shop\\Catalog 1",
+            "Shop\\Orders\\OrderService -> Shop\\Orders\\Order 2",
+            "Shop\\Orders\\OrderService -> acme/payments 1"
+        ]
+    },
+    "uml-of-order": {
+        "view": { "level": 3, "focus": "Shop\\Orders\\Order" },
+        "nodes": [
+            "uml Shop\\Orders\\Order",
+            "class Illuminate\\Database\\Eloquent\\Model",
+            "class Shop\\Billing\\Invoice",
+            "class Shop\\Catalog\\Product",
+            "class Shop\\Orders\\OrderService",
+            "class Shop\\Orders\\OrderStatus",
+            "class Shop\\Support\\HasUuid"
+        ],
+        "edges": [
+            "Shop\\Billing\\Invoice -> Shop\\Orders\\Order 2 cycle",
+            "Shop\\Orders\\Order -> Illuminate\\Database\\Eloquent\\Model 1",
+            "Shop\\Orders\\Order -> Shop\\Billing\\Invoice 1 cycle",
+            "Shop\\Orders\\Order -> Shop\\Catalog\\Product 2",
+            "Shop\\Orders\\Order -> Shop\\Orders\\OrderStatus 2",
+            "Shop\\Orders\\Order -> Shop\\Support\\HasUuid 1",
+            "Shop\\Orders\\OrderService -> Shop\\Orders\\Order 2"
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "packages": [
+        {
+            "name": "laravel/framework",
+            "install-path": "../laravel/framework",
+            "autoload": {
+                "psr-4": {
+                    "Illuminate\\": "src/Illuminate/"
+                }
+            }
+        },
+        {
+            "name": "acme/payments",
+            "install-path": "../acme/payments",
+            "autoload": {
+                "psr-4": {
+                    "Acme\\Payments\\": "src/"
+                }
+            }
+        }
+    ]
+}

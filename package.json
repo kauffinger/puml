@@ -1,0 +1,11 @@
+{
+    "name": "puml",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "node --test \"tests/**/*.test.js\""
+    },
+    "devDependencies": {
+        "@viz-js/viz": "^3.31.0"
+    }
+}

@@ -1,0 +1,106 @@
+{
+    "classes": {
+        "Shop\\Kernel": { "kind": "class", "package": "fixture/shop", "external": false },
+        "Shop\\Support\\Money": { "kind": "class", "package": "fixture/shop", "external": false },
+        "Shop\\Support\\HasUuid": { "kind": "trait", "package": "fixture/shop", "external": false },
+        "Shop\\Catalog\\Category": { "kind": "class", "package": "fixture/shop", "external": false, "parent": "Illuminate\\Database\\Eloquent\\Model" },
+        "Shop\\Catalog\\Product": { "kind": "class", "package": "fixture/shop", "external": false, "parent": "Illuminate\\Database\\Eloquent\\Model", "traits": ["Shop\\Support\\HasUuid"] },
+        "Shop\\Catalog\\ProductService": { "kind": "class", "package": "fixture/shop", "external": false },
+        "Shop\\Orders\\OrderStatus": { "kind": "enum", "package": "fixture/shop", "external": false, "cases": ["Paid", "Pending"] },
+        "Shop\\Orders\\Order": { "kind": "class", "package": "fixture/shop", "external": false, "parent": "Illuminate\\Database\\Eloquent\\Model", "traits": ["Shop\\Support\\HasUuid"] },
+        "Shop\\Orders\\OrderService": { "kind": "class", "package": "fixture/shop", "external": false },
+        "Shop\\Billing\\PaymentGateway": { "kind": "interface", "package": "fixture/shop", "external": false },
+        "Shop\\Billing\\StripeGateway": { "kind": "class", "package": "fixture/shop", "external": false, "interfaces": ["Shop\\Billing\\PaymentGateway"] },
+        "Shop\\Billing\\PaymentFailed": { "kind": "class", "package": "fixture/shop", "external": false, "parent": "RuntimeException" },
+        "Shop\\Billing\\Invoice": { "kind": "class", "package": "fixture/shop", "external": false },
+        "Shop\\Billing\\InvoiceRepository": { "kind": "class", "package": "fixture/shop", "external": false },
+        "Illuminate\\Database\\Eloquent\\Model": { "package": "laravel/framework", "external": true },
+        "Illuminate\\Cache\\CacheManager": { "package": "laravel/framework", "external": true },
+        "Acme\\Payments\\Client": { "package": "acme/payments", "external": true },
+        "RuntimeException": { "package": "php", "external": true }
+    },
+    "relations": {
+        "Shop\\Catalog\\Category": ["products HasMany Shop\\Catalog\\Product @11"],
+        "Shop\\Catalog\\Product": ["category BelongsTo Shop\\Catalog\\Category @15"],
+        "Shop\\Orders\\Order": [
+            "products BelongsToMany Shop\\Catalog\\Product @21",
+            "invoice HasOne Shop\\Billing\\Invoice @26",
+            "billable MorphTo ? @31"
+        ]
+    },
+    "members": {
+        "Shop\\Orders\\Order": {
+            "properties": ["+status: OrderStatus", "+lines: list<Product>"],
+            "methods": ["+products()", "+invoice()", "+billable()"]
+        },
+        "Shop\\Orders\\OrderService": {
+            "properties": ["-gateway: PaymentGateway", "-invoices: InvoiceRepository"],
+            "methods": [
+                "+__construct(gateway: PaymentGateway, invoices: InvoiceRepository)",
+                "+place(product: Product): Order",
+                "+client(class: string): Client"
+            ]
+        },
+        "Shop\\Catalog\\ProductService": {
+            "properties": [],
+            "methods": ["+featured(): list<Product>", "+isProduct(value: mixed): bool"]
+        },
+        "Shop\\Support\\Money": {
+            "properties": ["+cents: int readonly"],
+            "methods": ["+__construct(cents: int)", "+of(cents: int): self"]
+        }
+    },
+    "edges": [
+        "Shop\\Kernel -> Shop\\Orders\\OrderService injects @src/Kernel.php:9",
+        "Shop\\Kernel -> Shop\\Orders\\OrderService property @src/Kernel.php:9",
+
+        "Shop\\Catalog\\Category -> Illuminate\\Database\\Eloquent\\Model extends @src/Catalog/Category.php:7",
+        "Shop\\Catalog\\Category -> Shop\\Catalog\\Product relation [products(): HasMany] @src/Catalog/Category.php:11",
+
+        "Shop\\Catalog\\Product -> Illuminate\\Database\\Eloquent\\Model extends @src/Catalog/Product.php:9",
+        "Shop\\Catalog\\Product -> Shop\\Support\\HasUuid uses-trait @src/Catalog/Product.php:11",
+        "Shop\\Catalog\\Product -> Shop\\Catalog\\Category relation [category(): BelongsTo] @src/Catalog/Product.php:15",
+        "Shop\\Catalog\\Product -> Shop\\Support\\Money signature @src/Catalog/Product.php:18",
+        "Shop\\Catalog\\Product -> Shop\\Support\\Money static @src/Catalog/Product.php:20",
+
+        "Shop\\Catalog\\ProductService -> Shop\\Catalog\\Product signature @src/Catalog/ProductService.php:10",
+        "Shop\\Catalog\\ProductService -> Illuminate\\Cache\\CacheManager facade [Illuminate\\Support\\Facades\\Cache] @src/Catalog/ProductService.php:14",
+        "Shop\\Catalog\\ProductService -> Shop\\Catalog\\Product reference @src/Catalog/ProductService.php:19",
+
+        "Shop\\Orders\\Order -> Illuminate\\Database\\Eloquent\\Model extends @src/Orders/Order.php:10",
+        "Shop\\Orders\\Order -> Shop\\Support\\HasUuid uses-trait @src/Orders/Order.php:12",
+        "Shop\\Orders\\Order -> Shop\\Orders\\OrderStatus property @src/Orders/Order.php:14",
+        "Shop\\Orders\\Order -> Shop\\Orders\\OrderStatus static @src/Orders/Order.php:14",
+        "Shop\\Orders\\Order -> Shop\\Catalog\\Product property @src/Orders/Order.php:16",
+        "Shop\\Orders\\Order -> Shop\\Catalog\\Product relation [products(): BelongsToMany] @src/Orders/Order.php:21",
+        "Shop\\Orders\\Order -> Shop\\Billing\\Invoice relation [invoice(): HasOne] @src/Orders/Order.php:26",
+
+        "Shop\\Orders\\OrderService -> Shop\\Billing\\PaymentGateway injects @src/Orders/OrderService.php:15",
+        "Shop\\Orders\\OrderService -> Shop\\Billing\\PaymentGateway property @src/Orders/OrderService.php:15",
+        "Shop\\Orders\\OrderService -> Shop\\Billing\\InvoiceRepository injects @src/Orders/OrderService.php:16",
+        "Shop\\Orders\\OrderService -> Shop\\Billing\\InvoiceRepository property @src/Orders/OrderService.php:16",
+        "Shop\\Orders\\OrderService -> Shop\\Catalog\\Product signature @src/Orders/OrderService.php:20",
+        "Shop\\Orders\\OrderService -> Shop\\Orders\\Order signature @src/Orders/OrderService.php:20",
+        "Shop\\Orders\\OrderService -> Shop\\Orders\\Order new @src/Orders/OrderService.php:22",
+        "Shop\\Orders\\OrderService -> Shop\\Billing\\PaymentFailed reference @src/Orders/OrderService.php:26",
+        "Shop\\Orders\\OrderService -> Shop\\Billing\\Invoice new @src/Orders/OrderService.php:30",
+        "Shop\\Orders\\OrderService -> Acme\\Payments\\Client signature @src/Orders/OrderService.php:35",
+
+        "Shop\\Billing\\PaymentGateway -> Shop\\Support\\Money signature @src/Billing/PaymentGateway.php:9",
+
+        "Shop\\Billing\\StripeGateway -> Shop\\Billing\\PaymentGateway implements @src/Billing/StripeGateway.php:8",
+        "Shop\\Billing\\StripeGateway -> Acme\\Payments\\Client injects @src/Billing/StripeGateway.php:10",
+        "Shop\\Billing\\StripeGateway -> Acme\\Payments\\Client property @src/Billing/StripeGateway.php:10",
+        "Shop\\Billing\\StripeGateway -> Shop\\Support\\Money signature @src/Billing/StripeGateway.php:14",
+
+        "Shop\\Billing\\PaymentFailed -> RuntimeException extends @src/Billing/PaymentFailed.php:5",
+
+        "Shop\\Billing\\Invoice -> Shop\\Orders\\Order injects @src/Billing/Invoice.php:9",
+        "Shop\\Billing\\Invoice -> Shop\\Orders\\Order property @src/Billing/Invoice.php:9",
+
+        "Shop\\Billing\\InvoiceRepository -> Shop\\Billing\\Invoice signature @src/Billing/InvoiceRepository.php:7"
+    ],
+    "unresolved": [
+        "dynamic-new @src/Orders/OrderService.php:37"
+    ]
+}
