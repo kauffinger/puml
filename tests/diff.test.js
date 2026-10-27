@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { extract, extractor, git, readJson, repositoryWithPullRequest } from './support.js';
 
@@ -137,5 +138,62 @@ describe('a pull request on the blog', () => {
 
         assert.equal(result.status, 2);
         assert.match(result.stderr, /fetch-depth: 0/);
+    });
+});
+
+describe('the pull request comment', () => {
+    let dir;
+    let blog;
+
+    before(() => {
+        dir = repositoryWithPullRequest('backend');
+        blog = join(dir, 'backend');
+    });
+
+    after(() => rmSync(dir, { recursive: true, force: true }));
+
+    const markdown = (...flags) => diff(blog, 'main', '--format', 'markdown', ...flags).stdout;
+    const linked = (commit, place) => {
+        const [file, line] = place.split(':');
+
+        return `[\`${place}\`](https://github.com/owner/app/blob/${commit}/backend/${file}#L${line})`;
+    };
+
+    test('links only the places in the base while the head has uncommitted changes', () => {
+        const comment = markdown('--repository', 'https://github.com/owner/app/');
+        const base = git(dir, 'rev-parse', 'main').trim();
+
+        assert.ok(comment.includes(`no longer breaks \`core-independent-of-http\` · ${linked(base, 'app/Jobs/PublishPost.php:15')}`), comment);
+        assert.ok(comment.includes(' breaks `core-independent-of-http` · `app/Data/PostData.php:15`'), comment);
+    });
+
+    test('links each place to the commit it was read from', () => {
+        git(dir, 'checkout', '--quiet', '-b', 'pull-request');
+        git(dir, 'add', '--all');
+        git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Publish posts from a PostData object');
+
+        const comment = markdown('--repository', 'https://github.com/owner/app');
+        const [base, head] = [git(dir, 'rev-parse', 'main').trim(), git(dir, 'rev-parse', 'HEAD').trim()];
+
+        assert.ok(comment.includes(` breaks \`core-independent-of-http\` · ${linked(head, 'app/Data/PostData.php:15')}`), comment);
+        assert.ok(comment.includes(`no longer breaks \`core-independent-of-http\` · ${linked(base, 'app/Jobs/PublishPost.php:15')}`), comment);
+        assert.ok(comment.includes(`by \`PostPublished\` · ${linked(head, 'app/Events/PostPublished.php:16')}`), comment);
+        assert.ok(comment.includes(`1. \`App\\Data\\PostData\` added · ${linked(head, 'app/Data/PostData.php:7')}`), comment);
+        assert.doesNotMatch(markdown(), /\]\(https:/);
+    });
+
+    test('is one line and a fold when nothing in the verdict changed', () => {
+        git(dir, 'checkout', '--quiet', '-b', 'quiet', 'main');
+        const post = join(blog, 'app/Models/Post.php');
+        writeFileSync(post, readFileSync(post, 'utf8').replace('public function url(): string', 'public function url(bool $absolute = true): string'));
+        git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '--all', '-m', 'Absolute URLs');
+
+        const comment = markdown();
+        const [top] = comment.split('<details>');
+
+        assert.match(top, /^## puml: ✅ nothing in the architecture got worse\n\n`main` \(\w{7}\) → `HEAD` \(\w{7}\)\n\n$/);
+        assert.match(comment, /^<details><summary><b>Classes<\/b>: 1 modified · <b>used by<\/b> 6 directly, 8 in all<\/summary>$/m);
+        assert.match(comment, /```mermaid\nflowchart LR/);
+        assert.ok(comment.trimEnd().endsWith('</details>'));
     });
 });

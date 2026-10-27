@@ -22,7 +22,7 @@ fixtures/    shop: a small fixture app with a hand-written expected graph
              blog-pr: a pull request on blog (head/ laid over it, deleted lists removed files), with hand-written expected/diff.json
 tests/       golden, invariant, drill, cycle, edge-budget, rule, diff and action tests (node --test)
 verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
-action/      the GitHub Action's scripts: install.sh downloads a release, report.sh runs `diff` and comments
+action/      the GitHub Action's scripts: install.sh downloads a release, report.sh runs `diff`, annotates and comments
 action.yml   the GitHub Action
 assets/      the icon and the README screenshots
 ```
@@ -232,8 +232,8 @@ To release, bump `version` in `extractor/Cargo.toml` and the `version` input's d
 commit, and push a matching tag:
 
 ```sh
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 `.github/workflows/release.yml` fails if the tag differs from the crate version or from the action's

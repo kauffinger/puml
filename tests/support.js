@@ -23,20 +23,24 @@ export function git(dir, ...args) {
     return result.stdout;
 }
 
-/** The blog fixture committed once, with the pull request in fixtures/blog-pr laid over it in the working tree. */
-export function repositoryWithPullRequest() {
+/**
+ * The blog fixture committed once, with the pull request in fixtures/blog-pr laid over it in the working tree.
+ * The blog sits in `directory` inside the repository; the repository is returned.
+ */
+export function repositoryWithPullRequest(directory = '') {
     const dir = mkdtempSync(join(tmpdir(), 'puml-diff-'));
-    cpSync(`${repository}fixtures/blog`, dir, { recursive: true, filter: (path) => !path.includes('/expected') });
+    const blog = join(dir, directory);
+    cpSync(`${repository}fixtures/blog`, blog, { recursive: true, filter: (path) => !path.includes('/expected') });
 
     git(dir, 'init', '--quiet', '--initial-branch=main');
     git(dir, 'add', '--all');
     git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Base');
 
     for (const path of readFileSync(`${repository}fixtures/blog-pr/deleted`, 'utf8').split('\n').filter(Boolean)) {
-        rmSync(join(dir, path));
+        rmSync(join(blog, path));
     }
 
-    cpSync(`${repository}fixtures/blog-pr/head`, dir, { recursive: true });
+    cpSync(`${repository}fixtures/blog-pr/head`, blog, { recursive: true });
 
     return dir;
 }

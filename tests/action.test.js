@@ -35,7 +35,7 @@ describe('the GitHub Action', () => {
         rmSync(runner, { recursive: true, force: true });
     });
 
-    function report({ base = '', baseBranch = 'main', strict = 'false', comments = [] } = {}) {
+    function report({ base = '', baseBranch = 'main', strict = 'false', comments = [], directory = dir } = {}) {
         const run = mkdtempSync(join(runner, 'run-'));
         const file = (name) => join(run, name);
         writeFileSync(file('comments.json'), JSON.stringify(comments));
@@ -49,6 +49,7 @@ describe('the GitHub Action', () => {
                 RUNNER_TEMP: run,
                 GITHUB_OUTPUT: file('output'),
                 GITHUB_STEP_SUMMARY: file('summary'),
+                GITHUB_SERVER_URL: 'https://github.com',
                 GITHUB_REPOSITORY: 'owner/app',
                 GITHUB_BASE_REF: baseBranch,
                 GH_LOG: file('gh.log'),
@@ -56,7 +57,7 @@ describe('the GitHub Action', () => {
                 GH_BODY: file('body.md'),
                 PULL_REQUEST: '12',
                 PUML_BASE: base,
-                PUML_DIRECTORY: dir,
+                PUML_DIRECTORY: directory,
                 PUML_COMMENT: 'true',
                 PUML_STRICT: strict,
             },
@@ -86,6 +87,40 @@ describe('the GitHub Action', () => {
         assert.match(result.body, /^`origin\/main` \(\w{7}\) → `HEAD`/m);
     });
 
+    test('annotates the lines that make the architecture worse', () => {
+        const result = report();
+        const annotations = result.stdout.split('\n').filter((line) => line.startsWith('::warning '));
+
+        assert.deepEqual(annotations, [
+            '::warning file=app/Data/PostData.php,line=15,title=puml%3A core-independent-of-http::' +
+                'App\\Data\\PostData now depends on App\\Http\\Requests\\StorePostRequest (signature via PostData::fromRequest()), ' +
+                'which breaks core-independent-of-http.',
+            '::warning file=app/Events/PostPublished.php,line=16,title=puml%3A removed class still used::' +
+                'This pull request removes App\\Listeners\\NotifyAuthor, but App\\Events\\PostPublished still uses it (reference).',
+        ]);
+    });
+
+    test('links the places in the comment to the repository', () => {
+        const result = report();
+        const base = git(dir, 'rev-parse', 'main').trim();
+
+        assert.ok(result.body.includes(`[\`app/Jobs/PublishPost.php:15\`](https://github.com/owner/app/blob/${base}/app/Jobs/PublishPost.php#L15)`));
+    });
+
+    test('annotates files by their path in the repository', () => {
+        const repository = repositoryWithPullRequest('backend');
+        git(repository, 'update-ref', 'refs/remotes/origin/main', 'main');
+
+        try {
+            const result = report({ directory: join(repository, 'backend') });
+
+            assert.equal(result.status, 0, result.stderr);
+            assert.match(result.stdout, /^::warning file=backend\/app\/Data\/PostData\.php,line=15,/m);
+        } finally {
+            rmSync(repository, { recursive: true, force: true });
+        }
+    });
+
     test('updates its own comment instead of adding another', () => {
         const result = report({
             comments: [
@@ -103,6 +138,8 @@ describe('the GitHub Action', () => {
 
         assert.equal(result.status, 1);
         assert.match(result.stdout, /::error::This pull request makes the architecture worse/);
+        assert.match(result.stdout, /^::error file=app\/Data\/PostData\.php,line=15,title=puml%3A core-independent-of-http::/m);
+        assert.doesNotMatch(result.stdout, /^::warning /m);
         assert.match(result.calls[1], /--method POST/);
     });
 

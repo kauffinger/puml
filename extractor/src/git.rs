@@ -12,6 +12,8 @@ pub struct Changes {
     pub base_commit: String,
     pub head_commit: String,
     pub uncommitted: bool,
+    /// The project directory in the repository, with a trailing slash, or empty at its root.
+    pub prefix: String,
     /// Paths are relative to the project directory, and only files inside it are listed.
     pub files: Vec<ChangedFile>,
 }
@@ -56,13 +58,14 @@ impl Changes {
             format!("no merge base of {base} and HEAD ({error}); fetch the base branch first, with fetch-depth: 0 on actions/checkout")
         })?;
         let head_commit = git(project_dir, &["rev-parse", "HEAD"])?;
+        let prefix = git(project_dir, &["rev-parse", "--show-prefix"])?;
         let status = git(project_dir, &["status", "--porcelain", "--", "."])?;
         let listing = working_tree_diff(project_dir, &base_commit)?;
 
         let mut files = parse_name_status(&listing);
         files.sort();
 
-        Ok(Changes { base_ref: base.to_string(), base_commit, head_commit, uncommitted: !status.is_empty(), files })
+        Ok(Changes { base_ref: base.to_string(), base_commit, head_commit, uncommitted: !status.is_empty(), prefix, files })
     }
 
     pub fn base_contents(&self, project_dir: &Path, path: &str) -> Result<Vec<u8>, String> {

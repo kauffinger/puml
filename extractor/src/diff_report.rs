@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::diff::Diff;
 use crate::diff_markdown;
+use crate::diff_markdown::Links;
 use crate::diff::Modified;
 use crate::graph::Edge;
 use crate::report::evidence;
@@ -22,10 +23,10 @@ pub enum Format {
 
 const NAMES_PER_LINE: usize = 8;
 
-pub fn render(diff: &Diff, format: Format) -> String {
+pub fn render(diff: &Diff, format: Format, links: Option<&Links>) -> String {
     match format {
         Format::Json => return serde_json::to_string_pretty(diff).expect("the diff serializes to JSON") + "\n",
-        Format::Markdown => return diff_markdown::render(diff),
+        Format::Markdown => return diff_markdown::render(diff, links),
         Format::Text => {}
     }
 

@@ -787,6 +787,7 @@ mod tests {
             base_commit: "base".to_string(),
             head_commit: "head".to_string(),
             uncommitted: false,
+            prefix: String::new(),
             files: paths.iter().map(|path| ChangedFile { path: path.to_string(), status: FileStatus::Modified, from: None }).collect(),
         }
     }

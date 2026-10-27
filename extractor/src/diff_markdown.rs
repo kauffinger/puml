@@ -1,6 +1,8 @@
 //! `puml-extract diff --format markdown`, the pull request comment. It opens with a scoreboard and the
 //! findings a reviewer has to act on, then draws the classes the pull request changes as a Mermaid graph,
-//! which GitHub renders, and folds the rest into `<details>`.
+//! which GitHub renders, and folds the rest into `<details>`. A pull request without findings gets one
+//! line with everything else folded away, so that a comment on every pull request does not teach
+//! reviewers to skip it. With `--repository`, every `file:line` links to its commit on GitHub.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -11,8 +13,8 @@ use crate::diff::Diff;
 use crate::diff::ModuleNumbers;
 use crate::diff_report::instability;
 use crate::diff_report::short;
+use crate::git::Changes;
 use crate::graph::Edge;
-use crate::report::evidence;
 use crate::report::plural;
 
 /// Lists are cut here, and a class graph with more nodes gives way to the module graph. A pull request
@@ -25,15 +27,38 @@ const RED: &str = "#cf222e";
 const PURPLE: &str = "#8250df";
 const GREY: &str = "#8c959f";
 
-pub fn render(diff: &Diff) -> String {
-    let mut comment = Comment { diff, lines: Vec::new() };
+pub fn render(diff: &Diff, links: Option<&Links>) -> String {
+    let mut comment = Comment { diff, links, lines: Vec::new() };
     comment.write();
 
     comment.lines.join("\n") + "\n"
 }
 
+/// Where a `file:line` links to on GitHub: the commit it was read from, in the project directory. The
+/// head has no link while it has uncommitted changes, which no commit on GitHub holds.
+pub struct Links {
+    base: String,
+    head: Option<String>,
+}
+
+impl Links {
+    pub fn new(repository: &str, changes: &Changes) -> Links {
+        let blob = |commit: &str| format!("{}/blob/{commit}/{}", repository.trim_end_matches('/'), changes.prefix);
+
+        Links { base: blob(&changes.base_commit), head: (!changes.uncommitted).then(|| blob(&changes.head_commit)) }
+    }
+}
+
+/// The side a place was read from: removed edges and fixed violations point into the base.
+#[derive(Clone, Copy)]
+enum At {
+    Base,
+    Head,
+}
+
 struct Comment<'a> {
     diff: &'a Diff,
+    links: Option<&'a Links>,
     lines: Vec<String>,
 }
 
@@ -59,9 +84,32 @@ impl<'a> Comment<'a> {
 
     fn write(&mut self) {
         self.title();
+
+        if !has_findings(self.diff) {
+            self.quietly();
+            return;
+        }
+
         self.scoreboard();
         self.findings();
+        self.everything();
+    }
 
+    fn quietly(&mut self) {
+        let start = self.lines.len();
+        self.details(&format!("<b>Classes</b>: {} · <b>used by</b> {}", or(self.changed_classes(), "none changed"), self.used_by()));
+        let opened = self.lines.len();
+
+        self.everything();
+
+        if self.lines.len() == opened {
+            self.lines.truncate(start);
+        } else {
+            self.end_details();
+        }
+    }
+
+    fn everything(&mut self) {
         for note in &self.diff.notes {
             self.out("");
             self.out(format!("> {note}"));
@@ -114,17 +162,7 @@ impl<'a> Comment<'a> {
             cycles.push(counted(diff.cycles.iter().filter(|cycle| cycle.status == status).count(), icon, word));
         }
 
-        let classes = &diff.classes;
-        let changed = joined(&[
-            counted(classes.added.len(), "", "added"),
-            counted(classes.modified.len(), "", "modified"),
-            counted(classes.renamed.len(), "", "renamed"),
-            counted(classes.removed.len(), "", "removed"),
-        ]);
-
-        let direct: BTreeSet<&String> = diff.impact.classes.iter().flat_map(|entry| &entry.dependents).collect();
-        let reach: usize = diff.impact.reach.values().sum();
-        let used_by = if reach == 0 { "none".to_string() } else { format!("{} directly, {reach} in all", direct.len()) };
+        let used_by = self.used_by();
 
         self.out("");
         self.out("| Rule violations | Module cycles | Removed classes in use | Classes | Used by |");
@@ -134,8 +172,27 @@ impl<'a> Comment<'a> {
             or(violations, "✅ none new"),
             or(joined(&cycles), "✅ none new"),
             or(counted(diff.dangling.len(), "🔴", ""), "✅ none"),
-            or(changed, "none changed"),
+            or(self.changed_classes(), "none changed"),
         ));
+    }
+
+    fn changed_classes(&self) -> String {
+        let classes = &self.diff.classes;
+
+        joined(&[
+            counted(classes.added.len(), "", "added"),
+            counted(classes.modified.len(), "", "modified"),
+            counted(classes.renamed.len(), "", "renamed"),
+            counted(classes.removed.len(), "", "removed"),
+        ])
+    }
+
+    fn used_by(&self) -> String {
+        let impact = &self.diff.impact;
+        let direct: BTreeSet<&String> = impact.classes.iter().flat_map(|entry| &entry.dependents).collect();
+        let reach: usize = impact.reach.values().sum();
+
+        if reach == 0 { "none".to_string() } else { format!("{} directly, {reach} in all", direct.len()) }
     }
 
     /// One line for each thing that got worse or better, so nobody has to read on to know what to fix.
@@ -143,15 +200,16 @@ impl<'a> Comment<'a> {
         let diff = self.diff;
         let mut lines = Vec::new();
 
-        for (icon, title, verb, list) in
-            [("🔴", "New rule violation", "breaks", &diff.violations.added), ("🟢", "Rule violation fixed", "no longer breaks", &diff.violations.removed)]
-        {
+        for (icon, title, verb, list, at) in [
+            ("🔴", "New rule violation", "breaks", &diff.violations.added, At::Head),
+            ("🟢", "Rule violation fixed", "no longer breaks", &diff.violations.removed, At::Base),
+        ] {
             for violation in list {
                 lines.push(format!(
-                    "{icon} **{title}** {} {verb} `{}` · `{}`",
+                    "{icon} **{title}** {} {verb} `{}` · {}",
                     arrow(&violation.edge.from, &violation.edge.to),
                     violation.rule,
-                    evidence(&violation.edge)
+                    self.evidence(&violation.edge, at)
                 ));
             }
         }
@@ -161,7 +219,7 @@ impl<'a> Comment<'a> {
         }
 
         for dangling in &diff.dangling {
-            let users: Vec<String> = dangling.used_by.iter().map(|edge| format!("`{}` · `{}`", class_name(&edge.from), evidence(edge))).collect();
+            let users: Vec<String> = dangling.used_by.iter().map(|edge| format!("`{}` · {}", class_name(&edge.from), self.evidence(edge, At::Head))).collect();
 
             lines.push(format!("🔴 **Removed but still used** `{}` by {}", class_name(&dangling.class), users.join(", ")));
         }
@@ -404,13 +462,13 @@ impl<'a> Comment<'a> {
 
         let modified: HashMap<&str, _> = diff.classes.modified.iter().map(|modified| (modified.class.id.as_str(), modified)).collect();
         let renamed: HashMap<&str, &str> = diff.classes.renamed.iter().map(|renamed| (renamed.to.id.as_str(), renamed.from.id.as_str())).collect();
-        let places: HashMap<&str, String> = diff
+        let places: HashMap<&str, (&str, u32)> = diff
             .classes
             .added
             .iter()
             .chain(diff.classes.modified.iter().map(|modified| &modified.class))
             .chain(diff.classes.renamed.iter().map(|renamed| &renamed.to))
-            .map(|class| (class.id.as_str(), format!("{}:{}", class.file, class.line)))
+            .map(|class| (class.id.as_str(), (class.file.as_str(), class.line)))
             .collect();
 
         let total: usize = diff.reading_order.iter().map(Vec::len).sum();
@@ -438,9 +496,9 @@ impl<'a> Comment<'a> {
                     (_, Some(from)) => format!("renamed from `{from}`"),
                     _ => "added".to_string(),
                 };
-                let place = places.get(id.as_str()).cloned().unwrap_or_default();
+                let place = places.get(id.as_str()).map(|(file, line)| format!(" · {}", self.place(file, *line, At::Head))).unwrap_or_default();
 
-                self.out(format!("{number}. `{id}` {status} · `{place}`"));
+                self.out(format!("{number}. `{id}` {status}{place}"));
 
                 if let Some(modified) = modified.get(id.as_str()) {
                     for member in &modified.members {
@@ -628,14 +686,31 @@ impl<'a> Comment<'a> {
             .map(|class| class.id.as_str())
             .collect();
 
-        let added = self.diff.edges.added.iter().map(|edge| ("New", edge));
-        let removed = self.diff.edges.removed.iter().map(|edge| ("Gone", edge));
+        let added = self.diff.edges.added.iter().map(|edge| ("New", edge, At::Head));
+        let removed = self.diff.edges.removed.iter().map(|edge| ("Gone", edge, At::Base));
 
         added
             .chain(removed)
-            .filter(|(_, edge)| !listed.contains(edge.from.as_str()) && !gone.contains(edge.from.as_str()))
-            .map(|(status, edge)| format!("{status} class edge `{}` → `{}` ({}) · `{}`", edge.from, edge.to, edge.kind.name(), evidence(edge)))
+            .filter(|(_, edge, _)| !listed.contains(edge.from.as_str()) && !gone.contains(edge.from.as_str()))
+            .map(|(status, edge, at)| format!("{status} class edge `{}` → `{}` ({}) · {}", edge.from, edge.to, edge.kind.name(), self.evidence(edge, at)))
             .collect()
+    }
+
+    fn evidence(&self, edge: &Edge, at: At) -> String {
+        edge.evidence.iter().map(|place| self.place(&place.file, place.line, at)).collect::<Vec<_>>().join(" ")
+    }
+
+    fn place(&self, file: &str, line: u32, at: At) -> String {
+        let text = format!("`{file}:{line}`");
+        let blob = match at {
+            At::Base => self.links.map(|links| &links.base),
+            At::Head => self.links.and_then(|links| links.head.as_ref()),
+        };
+
+        match blob {
+            Some(blob) => format!("[{text}]({blob}{}#L{line})", file.replace(' ', "%20")),
+            None => text,
+        }
     }
 
     fn details(&mut self, summary: &str) {
@@ -652,6 +727,10 @@ impl<'a> Comment<'a> {
     fn breaks_rule(&self, edge: &Edge) -> bool {
         self.diff.violations.added.iter().any(|violation| violation.edge.from == edge.from && violation.edge.to == edge.to && violation.edge.kind == edge.kind)
     }
+}
+
+fn has_findings(diff: &Diff) -> bool {
+    !diff.violations.added.is_empty() || !diff.violations.removed.is_empty() || !diff.cycles.is_empty() || !diff.dangling.is_empty()
 }
 
 fn improves(diff: &Diff) -> bool {

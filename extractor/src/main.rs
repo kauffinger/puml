@@ -21,6 +21,7 @@ use rayon::prelude::*;
 
 use crate::collect::FileFacts;
 use crate::diff::Diff;
+use crate::diff_markdown::Links;
 use crate::diff_report::Format;
 use crate::git::Changes;
 use crate::git::FileStatus;
@@ -32,7 +33,7 @@ const USAGE: &str = "usage:
   puml-extract report <project-dir> [--dev]
   puml-extract show <project-dir> <module|namespace|class> [--dev]
   puml-extract show <project-dir> <from> <to> [--dev]
-  puml-extract diff <project-dir> <base-ref> [--format text|markdown|json] [--strict] [--dev]";
+  puml-extract diff <project-dir> <base-ref> [--format text|markdown|json] [--repository <github-url>] [--strict] [--dev]";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -160,6 +161,7 @@ fn diff_command(arguments: &[String]) -> ExitCode {
     let mut format = Format::Text;
     let mut strict = false;
     let mut include_dev = false;
+    let mut repository = None;
 
     let mut arguments = arguments.iter();
 
@@ -170,6 +172,10 @@ fn diff_command(arguments: &[String]) -> ExitCode {
                 Some("markdown") => format = Format::Markdown,
                 Some("json") => format = Format::Json,
                 _ => return usage_error(),
+            },
+            "--repository" => match arguments.next() {
+                Some(url) => repository = Some(url.as_str()),
+                None => return usage_error(),
             },
             "--strict" => strict = true,
             "--dev" => include_dev = true,
@@ -187,7 +193,8 @@ fn diff_command(arguments: &[String]) -> ExitCode {
     match result {
         Ok((changes, (base, head))) => {
             let diff = Diff::of(&base, &head, &changes);
-            print!("{}", diff_report::render(&diff, format));
+            let links = repository.map(|url| Links::new(url, &changes));
+            print!("{}", diff_report::render(&diff, format, links.as_ref()));
 
             if strict && diff.worsens() { ExitCode::FAILURE } else { ExitCode::SUCCESS }
         }

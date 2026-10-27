@@ -25,7 +25,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.4.0
+VERSION=v0.5.0
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -186,6 +186,7 @@ base branch, the same comparison a pull request on GitHub shows:
 ```sh
 puml-extract diff path/to/app origin/main                      # text, for the terminal or an agent
 puml-extract diff path/to/app origin/main --format markdown    # for a pull request comment
+puml-extract diff path/to/app origin/main --format markdown --repository https://github.com/owner/app
 puml-extract diff path/to/app origin/main --format json
 puml-extract diff path/to/app origin/main --strict             # exit 1 if the architecture got worse
 ```
@@ -209,13 +210,16 @@ pull request adds a rule violation, adds a module to a cycle, or leaves a remove
 The Markdown, for the pull request comment, is shorter: a verdict, a one-row scoreboard, one line per
 finding, and a Mermaid diagram of the classes the pull request changes and the dependencies they gained
 or lost, which GitHub draws. Above 40 classes the diagram shows the module edges instead. The reading
-order, the cycles, the users and the metrics are folded away underneath.
+order, the cycles, the users and the metrics are folded away underneath. A pull request with no finding
+gets a single line instead, with everything else folded away under it. With `--repository`, each
+`file:line` links to the commit it was read from on GitHub: places that the pull request removed point at
+the base, the rest at the head. The head gets no links while it has uncommitted changes.
 
 An excerpt, for a pull request on `fixtures/blog` that moves a job from the request to a new data object
 and renames a listener:
 
 ```
-puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.4.0 (mago 1.54.0)
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.5.0 (mago 1.54.0)
 classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
 architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
 
@@ -247,6 +251,9 @@ WHAT ELSE DEPENDS ON IT  (classes outside this pull request that use the classes
 
 The action comments the Markdown report on each pull request and updates that one comment on every
 push. A pull request that changes no class gets no comment. The report is also in the job summary.
+Each new rule violation and each use of a removed class is also annotated on its line, so it shows up in
+the Files changed tab: as a warning, or as an error with `strict: true`. GitHub shows at most 10 of each
+per step.
 
 ```yaml
 name: Architecture
@@ -264,7 +271,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: kauffinger/puml@v0.4.0
+      - uses: kauffinger/puml@v0.5.0
         with:
           strict: true
 ```
