@@ -17,9 +17,11 @@ use crate::git::Changes;
 use crate::graph::Edge;
 use crate::report::plural;
 
-/// Lists are cut here, and a class graph with more nodes gives way to the module graph. A pull request
-/// comment holds at most 65,536 characters, and Mermaid stops being legible long before that.
+/// Lists are cut here. A pull request comment holds at most 65,536 characters.
 const LIMIT: usize = 40;
+/// A class graph with more classes gives way to the module graph. One with more than `LIMIT` classes is
+/// folded: its labels stay readable, but at 90 classes it is some 14,000 pixels tall.
+const GRAPH_LIMIT: usize = 100;
 const NAMES_PER_LINE: usize = 8;
 
 const GREEN: &str = "#1a7f37";
@@ -294,7 +296,7 @@ impl<'a> Comment<'a> {
 
         let classes: BTreeSet<&str> = status.keys().copied().chain(links.keys().flat_map(|(from, to, _)| [*from, *to])).collect();
 
-        if classes.len() > LIMIT {
+        if classes.len() > GRAPH_LIMIT {
             return false;
         }
 
@@ -305,9 +307,16 @@ impl<'a> Comment<'a> {
             namespaces.entry(namespace(id)).or_default().push(id);
         }
 
-        self.out("");
-        self.out("### The classes it changes");
-        self.out("");
+        let folded = classes.len() > LIMIT;
+
+        if folded {
+            self.details(&format!("<b>The classes it changes</b>: {} classes", classes.len()));
+        } else {
+            self.out("");
+            self.out("### The classes it changes");
+            self.out("");
+        }
+
         self.out("```mermaid");
         self.out("flowchart LR");
 
@@ -346,9 +355,9 @@ impl<'a> Comment<'a> {
             let label = if entry.api_changed { "|\"API changed\"|" } else { "" };
 
             self.out(format!(
-                "  u{index}([\"{} class{} use it\"]) -.->{label} {class}",
+                "  u{index}([\"{} {} it\"]) -.->{label} {class}",
                 entry.dependents.len(),
-                plural(entry.dependents.len(), "es")
+                if entry.dependents.len() == 1 { "class uses" } else { "classes use" }
             ));
             styles.push((GREY, 2));
         }
@@ -388,6 +397,10 @@ impl<'a> Comment<'a> {
             "<sub>Boxes: green added, yellow modified, blue renamed, red removed. Arrows: green new dependency, purple breaks a rule, \
              red dashed dependency removed, thick red uses a removed class.</sub>",
         );
+
+        if folded {
+            self.end_details();
+        }
 
         true
     }

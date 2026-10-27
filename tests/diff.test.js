@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { extract, extractor, git, readJson, repositoryWithPullRequest } from './support.js';
@@ -195,5 +195,28 @@ describe('the pull request comment', () => {
         assert.match(comment, /^<details><summary><b>Classes<\/b>: 1 modified · <b>used by<\/b> 6 directly, 8 in all<\/summary>$/m);
         assert.match(comment, /```mermaid\nflowchart LR/);
         assert.ok(comment.trimEnd().endsWith('</details>'));
+    });
+
+    test('folds a class graph above 40 classes and draws module edges above 100', () => {
+        mkdirSync(join(blog, 'app/Probes'));
+
+        const addProbes = (count) => {
+            for (let number = 1; number <= count; number++) {
+                writeFileSync(
+                    join(blog, `app/Probes/Probe${number}.php`),
+                    `<?php\n\nnamespace App\\Probes;\n\nclass Probe${number}\n{\n    public function post(): \\App\\Models\\Post\n    {\n    }\n}\n`,
+                );
+            }
+        };
+
+        addProbes(45);
+        let comment = markdown();
+        assert.match(comment, /^<details><summary><b>The classes it changes<\/b>: 46 classes<\/summary>\n\n```mermaid$/m);
+        assert.doesNotMatch(comment, /### The classes it changes/);
+
+        addProbes(100);
+        comment = markdown();
+        assert.match(comment, /### The module edges it changes/);
+        assert.doesNotMatch(comment, /The classes it changes/);
     });
 });

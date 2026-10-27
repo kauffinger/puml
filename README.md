@@ -209,7 +209,7 @@ pull request adds a rule violation, adds a module to a cycle, or leaves a remove
 
 The Markdown, for the pull request comment, is shorter: a verdict, a one-row scoreboard, one line per
 finding, and a Mermaid diagram of the classes the pull request changes and the dependencies they gained
-or lost, which GitHub draws. Above 40 classes the diagram shows the module edges instead. The reading
+or lost, which GitHub draws. Above 40 classes the diagram is folded away, and above 100 it shows the module edges instead. The reading
 order, the cycles, the users and the metrics are folded away underneath. A pull request with no finding
 gets a single line instead, with everything else folded away under it. With `--repository`, each
 `file:line` links to the commit it was read from on GitHub: places that the pull request removed point at
