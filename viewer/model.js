@@ -20,7 +20,8 @@
  *
  * At every level an edge between two nodes aggregates every class edge between their classes: its weight
  * is the number of class edges, and it keeps them as evidence. Levels 2 and 3 only show edges touching the
- * focus. Cycles are the strongly connected components (Tarjan) of the projected graph. When there are
+ * focus. Cycles are the strongly connected components (Tarjan) of the projected graph's code edges; an
+ * edge made only of Laravel wiring (a route, a listener, a policy, ...) is not a dependency. When there are
  * more nodes than the budget, the lowest-ranked nodes merge into a single "other" node; cycles are found
  * before that merge so it cannot invent any. The budget is 40 nodes at levels 1 and 2 and 24 at level 3,
  * where the focused class alone takes the room of many plain nodes.
@@ -51,7 +52,25 @@ export const EDGE_KINDS = [
     'static',
     'facade',
     'reference',
+    'route',
+    'middleware',
+    'listener',
+    'observer',
+    'policy',
+    'binding',
+    'schedule',
 ];
+
+/**
+ * What Laravel connects at boot rather than what the code depends on: a route file to its controllers, an
+ * event to its listeners, a model to its observers and policy, an interface to its binding. They are drawn
+ * dashed and are never part of a dependency cycle.
+ */
+export const WIRING_KINDS = new Set(['route', 'middleware', 'listener', 'observer', 'policy', 'binding', 'schedule']);
+
+export function isWiring(edge) {
+    return Object.keys(edge.kinds).every((kind) => WIRING_KINDS.has(kind));
+}
 
 export function indexGraph(graph) {
     const classes = new Map(graph.classes.map((cls) => [cls.id, cls]));
@@ -439,7 +458,9 @@ export function stronglyConnected(nodeIds, edges) {
 function markCycles(nodes, edges) {
     const componentOf = new Map();
 
-    for (const component of stronglyConnected(nodes.map((node) => node.id), edges)) {
+    const dependencies = edges.filter((edge) => !isWiring(edge));
+
+    for (const component of stronglyConnected(nodes.map((node) => node.id), dependencies)) {
         if (component.length > 1) {
             for (const id of component) {
                 componentOf.set(id, component);
@@ -452,7 +473,7 @@ function markCycles(nodes, edges) {
     }
 
     for (const edge of edges) {
-        edge.cycle = componentOf.has(edge.from) && componentOf.get(edge.from) === componentOf.get(edge.to);
+        edge.cycle = !isWiring(edge) && componentOf.has(edge.from) && componentOf.get(edge.from) === componentOf.get(edge.to);
     }
 }
 

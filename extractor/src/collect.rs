@@ -34,6 +34,7 @@ use crate::graph::Property as PropertyNode;
 use crate::graph::Relation;
 use crate::graph::Unresolved;
 use crate::graph::split_name;
+use crate::wiring::WiringFacts;
 
 const RELATION_METHODS: &[(&str, &str)] = &[
     ("hasone", "HasOne"),
@@ -66,6 +67,7 @@ pub struct FileFacts {
     pub edges: Vec<RawEdge>,
     pub unresolved: Vec<Unresolved>,
     pub has_parse_errors: bool,
+    pub wiring: WiringFacts,
 }
 
 pub fn collect_file(path: &Path, relative: &str) -> FileFacts {
@@ -103,6 +105,7 @@ pub fn collect_source(path: &Path, relative: &str, contents: Vec<u8>) -> FileFac
     EdgeWalker.walk_program(program, &mut context);
 
     let mut facts = context.facts;
+    facts.wiring = crate::wiring::collect(&file, relative, program, &resolved_names);
 
     for class in &mut facts.classes {
         if let Some(metadata) = codebase.class_likes.get(&mago_word::word(class.id.to_ascii_lowercase())) {
@@ -549,6 +552,13 @@ fn describe_class(
         let parameter_kind = if method_metadata.is_constructor { EdgeKind::Injects } else { EdgeKind::Signature };
         let member = (!method_metadata.is_constructor).then(|| format!("{}()", method.original_name));
 
+        let first_parameter = method
+            .parameters
+            .first()
+            .and_then(|parameter| parameter.type_metadata.as_ref().or(parameter.type_declaration_metadata.as_ref()))
+            .map(|type_metadata| class_names(&type_metadata.type_union))
+            .unwrap_or_default();
+
         let params = method
             .parameters
             .iter()
@@ -584,6 +594,7 @@ fn describe_class(
             params,
             returns: returns.map(written),
             line: file.line_number(method.span.start.offset) + 1,
+            first_parameter,
         });
     }
 }

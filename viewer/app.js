@@ -1,4 +1,4 @@
-import { DEFAULT_EDGE_BUDGET, EDGE_KINDS, indexGraph, parentView, project, visibleEdges, formatProperty, formatMethod, shortTypes } from './model.js';
+import { DEFAULT_EDGE_BUDGET, EDGE_KINDS, indexGraph, isWiring, parentView, project, visibleEdges, formatProperty, formatMethod, shortTypes } from './model.js';
 
 const MEMBER_LIMIT = 24;
 const CONTENTS_LIMIT = 4;
@@ -8,7 +8,8 @@ const EVIDENCE_LIMIT = 400;
 const BUSIEST_LIMIT = 5;
 const MINIMUM_SCALE = 1;
 const MODULE_EDGE_BUDGET = 30;
-const LAYER_ORDER = ['http', 'console', 'providers', 'core', 'database', 'tests'];
+const LAYER_ORDER = ['entry', 'http', 'console', 'providers', 'core', 'database', 'tests'];
+const WIRING_COLOR = '#0f766e';
 
 const HOW_TO = 'Click a node or edge to select it, double-click to open it. Esc goes up.';
 
@@ -298,6 +299,10 @@ function banded(projection) {
 function bandOf(node) {
     layerById ??= new Map(index.graph.verdict.layers.map((entry) => [entry.namespace, entry.layer]));
 
+    if (node.kind === 'module' && node.classes.length > 0 && node.classes.every((id) => index.classes.get(id)?.kind === 'file')) {
+        return 'entry';
+    }
+
     return layerById.get(node.id) ?? (node.kind === 'package' ? 'vendor' : null);
 }
 
@@ -373,7 +378,10 @@ function contentsPreview(namespace) {
 }
 
 function classCount(node) {
-    return node.classes.length === 1 ? '1 class' : `${node.classes.length} classes`;
+    const files = node.classes.every((id) => index.classes.get(id)?.kind === 'file');
+    const [one, many] = files ? ['file', 'files'] : ['class', 'classes'];
+
+    return node.classes.length === 1 ? `1 ${one}` : `${node.classes.length} ${many}`;
 }
 
 function classContext(cls, focus) {
@@ -393,6 +401,10 @@ function relativeTo(namespace, focus) {
 }
 
 function umlLabel(cls, node) {
+    if (cls.kind === 'file') {
+        return fileLabel(cls);
+    }
+
     const color = node.cycle ? '#d64545' : '#1f6feb';
     const name = cls.abstract ? `<I>${htmlLabel(cls.name)}</I>` : htmlLabel(cls.name);
 
@@ -407,6 +419,36 @@ function umlLabel(cls, node) {
     const header = `<TR><TD BGCOLOR="#e8f1fd" CELLPADDING="5">${stereotype(cls)}<B>${name}</B><BR/><FONT POINT-SIZE="11" COLOR="#52606d">${htmlLabel(cls.namespace)}</FONT></TD></TR>`;
 
     return `<TABLE BORDER="${node.cycle ? 2 : 1}" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" COLOR="${color}" BGCOLOR="#ffffff">${header}${compartment(fields)}${compartment(operations)}</TABLE>`;
+}
+
+function fileLabel(cls) {
+    const header = `<TR><TD BGCOLOR="#e6f4f1" CELLPADDING="5"><FONT POINT-SIZE="11">«file»</FONT><BR/><B>${htmlLabel(cls.name)}</B><BR/><FONT POINT-SIZE="11" COLOR="#52606d">${htmlLabel(cls.file)}</FONT></TD></TR>`;
+
+    return `<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" COLOR="${WIRING_COLOR}" BGCOLOR="#ffffff">${header}${wiringOf(cls.id).map(compartment).join('')}</TABLE>`;
+}
+
+/** What a route file, bootstrap/app.php or a kernel registers, one line each, grouped by kind. */
+function wiringOf(id) {
+    const laravel = index.graph.laravel ?? {};
+    const short = (target) => (target ? target.split('\\').pop() : '');
+
+    return [
+        (laravel.routes ?? []).filter((route) => route.from === id).map((route) => `${routeMethods(route)} /${route.uri.replace(/^\//, '')} → ${actionOf(route)}`),
+        (laravel.schedule ?? []).filter((task) => task.from === id).map((task) => `${task.task} ${task.class ? short(task.class) : task.target}`),
+        (laravel.middleware ?? []).filter((fact) => fact.from === id).map((fact) => `${fact.slot} ${short(fact.class)}`),
+    ].filter((lines) => lines.length > 0);
+}
+
+function routeMethods(route) {
+    const methods = route.methods.filter((method) => method !== 'HEAD' || route.methods.length === 1);
+
+    return methods.length > 3 ? 'ANY' : methods.join('|');
+}
+
+function actionOf(route) {
+    const [target, method] = route.action.split('@');
+
+    return method ? `${target.split('\\').pop()}@${method}` : route.action;
 }
 
 function compartment(lines) {
@@ -447,6 +489,10 @@ function edgeAttributes(edge, projection) {
 
     if (only === 'implements' || only === 'uses-trait') {
         attributes.style = 'dashed';
+    }
+
+    if (isWiring(edge)) {
+        Object.assign(attributes, { style: 'dashed', color: `"${WIRING_COLOR}"`, fontcolor: `"${WIRING_COLOR}"` });
     }
 
     if (edge.cycle) {
@@ -1263,7 +1309,7 @@ function showNode(node, projection) {
     if (cls && (node.kind === 'class' || node.kind === 'uml')) {
         const open = node.kind === 'class' && !cls.external ? `<p><a data-focus="${escapeHtml(cls.id)}">Open its UML</a> <span class="muted">(or double-click)</span></p>` : '';
 
-        return setPanel(`<h2>${escapeHtml(cls.id)}</h2>` + metricsLine(node) + open + dependencies(node, projection) + classDetails(cls));
+        return setPanel(`<h2>${escapeHtml(cls.id)}</h2>` + metricsLine(node) + open + dependencies(node, projection) + wiringDetails(cls) + classDetails(cls));
     }
 
     setPanel(
@@ -1313,6 +1359,29 @@ function dependencies(node, projection) {
     return (
         list('Depends on', projection.edges.filter((edge) => edge.from === node.id), 'to') +
         list('Used by', projection.edges.filter((edge) => edge.to === node.id), 'from')
+    );
+}
+
+/** How Laravel reaches a class, or what a file registers, each with the file:line it is written at. */
+function wiringDetails(cls) {
+    const laravel = index.graph.laravel ?? {};
+    const item = (text, fact) => `<li>${text} ${sourceLink(fact.file, fact.line)}</li>`;
+    const code = (text) => `<code>${escapeHtml(text)}</code>`;
+    const list = (title, items) => (items.length ? `<h3>${title}</h3><ul>${items.join('')}</ul>` : '');
+    const id = cls.id;
+
+    return (
+        list('Routes', (laravel.routes ?? []).filter((route) => route.from === id || route.target === id).map((route) => item(`${code(`${routeMethods(route)} /${route.uri.replace(/^\//, '')}`)} → ${code(route.action)}${route.name ? ` <span class="muted">${escapeHtml(route.name)}</span>` : ''}`, route))) +
+            list('Listens to', (laravel.listeners ?? []).filter((listener) => listener.class === id).map((listener) => item(`${classLink(listener.event)} <span class="muted">${escapeHtml(listener.how)}</span>`, listener))) +
+            list('Listened to by', (laravel.listeners ?? []).filter((listener) => listener.event === id).map((listener) => item(`${code(listener.listener)} <span class="muted">${escapeHtml(listener.how)}</span>`, listener))) +
+            list('Observers', (laravel.observers ?? []).filter((observer) => observer.model === id).map((observer) => item(`${classLink(observer.observer)} <span class="muted">${escapeHtml(observer.events.join(', '))}</span>`, observer))) +
+            list('Observes', (laravel.observers ?? []).filter((observer) => observer.observer === id).map((observer) => item(`${classLink(observer.model)} <span class="muted">${escapeHtml(observer.events.join(', '))}</span>`, observer))) +
+            list('Policy', (laravel.policies ?? []).filter((policy) => policy.model === id).map((policy) => item(`${classLink(policy.policy)} <span class="muted">${escapeHtml(policy.how)}</span>`, policy))) +
+            list('Policy of', (laravel.policies ?? []).filter((policy) => policy.policy === id).map((policy) => item(`${classLink(policy.model)} <span class="muted">${escapeHtml(policy.how)}</span>`, policy))) +
+            list('Bound to', (laravel.bindings ?? []).filter((binding) => binding.key === id).map((binding) => item(`${binding.concrete ? classLink(binding.concrete) : '<span class="muted">a closure</span>'} <span class="muted">${binding.lifetime}</span>`, binding))) +
+            list('Bound as', (laravel.bindings ?? []).filter((binding) => binding.concrete === id && binding.key !== id).map((binding) => item(`${classLink(binding.key)} <span class="muted">${binding.lifetime}</span>`, binding))) +
+            list('Scheduled', (laravel.schedule ?? []).filter((task) => task.from === id || task.class === id).map((task) => item(code(`${task.task} ${task.target}`), task))) +
+            list('Middleware', (laravel.middleware ?? []).filter((fact) => fact.from === id || fact.class === id).map((fact) => item(`${code(fact.slot)} ${classLink(fact.class)}`, fact)))
     );
 }
 

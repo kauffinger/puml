@@ -190,6 +190,8 @@ pub fn report(graph: &Graph, source: &str) -> String {
         }
     }
 
+    print_laravel(&mut index);
+
     if !graph.unresolved.is_empty() {
         index.out("");
         index.out(format!(
@@ -209,6 +211,86 @@ pub fn report(graph: &Graph, source: &str) -> String {
     ));
 
     index.finish()
+}
+
+/// What Laravel wires up at boot, counted by where it is written and how it is found.
+fn print_laravel(index: &mut Index<'_>) {
+    let laravel = &index.graph.laravel;
+    let unresolved = |kind: &str| index.graph.unresolved.iter().filter(|note| note.kind == kind).count();
+    let counted = |labels: Vec<&str>| {
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+
+        for label in labels {
+            *counts.entry(label).or_default() += 1;
+        }
+
+        counts.iter().map(|(label, count)| format!("{label} {count}")).collect::<Vec<_>>().join(", ")
+    };
+
+    let lines = [
+        ("routes", laravel.routes.len(), counted(laravel.routes.iter().map(|route| route.file.as_str()).collect()), unresolved("route")),
+        ("listeners", laravel.listeners.len(), counted(laravel.listeners.iter().map(|listener| listener.how).collect()), unresolved("listener")),
+        ("observers", laravel.observers.len(), counted(laravel.observers.iter().map(|observer| observer.how).collect()), unresolved("observer")),
+        ("policies", laravel.policies.len(), counted(laravel.policies.iter().map(|policy| policy.how).collect()), unresolved("policy")),
+        ("bindings", laravel.bindings.len(), counted(laravel.bindings.iter().map(|binding| binding.lifetime).collect()), unresolved("binding")),
+        ("scheduled", laravel.schedule.len(), counted(laravel.schedule.iter().map(|task| task.task).collect()), unresolved("schedule")),
+        ("middleware", laravel.middleware.len(), counted(laravel.middleware.iter().map(|fact| fact.slot.split(':').next().unwrap_or_default()).collect()), unresolved("middleware")),
+    ];
+
+    if lines.iter().all(|(_, count, _, notes)| *count == 0 && *notes == 0) {
+        return;
+    }
+
+    index.out("");
+    index.out("LARAVEL  (what Laravel wires up at boot, read from bootstrap/app.php, routes/ and the registered providers;");
+    index.out("          drawn as dashed edges, never counted as dependencies. show <class|routes/web.php> lists them)");
+
+    for (title, count, breakdown, notes) in lines {
+        let breakdown = if breakdown.is_empty() { String::new() } else { format!("  ({breakdown})") };
+        let notes = if notes == 0 { String::new() } else { format!(", {notes} unresolved") };
+
+        index.out(format!("  {title}: {count}{breakdown}{notes}"));
+    }
+}
+
+/// How Laravel reaches a class, or what a route file or kernel registers, each with its file:line.
+fn wiring_sections(graph: &Graph, id: &str) -> Vec<(&'static str, Vec<String>)> {
+    let laravel = &graph.laravel;
+    let at = |file: &str, line: u32| format!("{file}:{line}");
+
+    vec![
+        (
+            "ROUTES",
+            laravel
+                .routes
+                .iter()
+                .filter(|route| route.from == id || route.target.as_deref() == Some(id))
+                .map(|route| {
+                    let name = route.name.as_deref().map(|name| format!("  {name}")).unwrap_or_default();
+
+                    format!("{}  {}{name}  {}", crate::wiring_graph::route_label(route), route.action, at(&route.file, route.line))
+                })
+                .collect(),
+        ),
+        ("LISTENS TO", laravel.listeners.iter().filter(|listener| listener.class.as_deref() == Some(id)).map(|listener| format!("{}  {}  {}", listener.event, listener.how, at(&listener.file, listener.line))).collect()),
+        ("LISTENED TO BY", laravel.listeners.iter().filter(|listener| listener.event == id).map(|listener| format!("{}  {}  {}", listener.listener, listener.how, at(&listener.file, listener.line))).collect()),
+        ("OBSERVERS", laravel.observers.iter().filter(|observer| observer.model == id).map(|observer| format!("{}  {}  {}", observer.observer, observer.events.join(", "), at(&observer.file, observer.line))).collect()),
+        ("OBSERVES", laravel.observers.iter().filter(|observer| observer.observer == id).map(|observer| format!("{}  {}  {}", observer.model, observer.events.join(", "), at(&observer.file, observer.line))).collect()),
+        ("POLICY", laravel.policies.iter().filter(|policy| policy.model == id).map(|policy| format!("{}  {}  {}", policy.policy, policy.how, at(&policy.file, policy.line))).collect()),
+        ("POLICY OF", laravel.policies.iter().filter(|policy| policy.policy == id).map(|policy| format!("{}  {}  {}", policy.model, policy.how, at(&policy.file, policy.line))).collect()),
+        (
+            "BOUND TO",
+            laravel
+                .bindings
+                .iter()
+                .filter(|binding| binding.key == id)
+                .map(|binding| format!("{}  {}  {}", binding.concrete.as_deref().unwrap_or("(a closure)"), binding.lifetime, at(&binding.file, binding.line)))
+                .collect(),
+        ),
+        ("BOUND AS", laravel.bindings.iter().filter(|binding| binding.concrete.as_deref() == Some(id) && binding.key != id).map(|binding| format!("{}  {}  {}", binding.key, binding.lifetime, at(&binding.file, binding.line))).collect()),
+        ("SCHEDULED", laravel.schedule.iter().filter(|task| task.from == id || task.class.as_deref() == Some(id)).map(|task| format!("{} {}  {}", task.task, task.target, at(&task.file, task.line))).collect()),
+        ("MIDDLEWARE", laravel.middleware.iter().filter(|fact| fact.from == id || fact.class == id).map(|fact| format!("{}  {}  {}", fact.slot, fact.class, at(&fact.file, fact.line))).collect()),
+    ]
 }
 
 fn print_cycle(index: &mut Index<'_>, cycle: &Cycle, source: &str) {
@@ -478,7 +560,7 @@ fn print_class(index: &mut Index<'_>, class: &ClassNode) {
         ("METHODS", class.methods.iter().map(|method| format!("{}  {file}:{}", format_method(method), method.line)).collect()),
     ];
 
-    for (title, items) in sections {
+    for (title, items) in sections.into_iter().chain(wiring_sections(index.graph, &class.id)) {
         if items.is_empty() {
             continue;
         }

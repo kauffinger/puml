@@ -25,7 +25,7 @@ require $autoloadPath;
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 
 $graph = json_decode(file_get_contents($graphPath), true, flags: JSON_THROW_ON_ERROR);
-$classes = array_filter($graph['classes'], fn (array $class) => ! $class['external']);
+$classes = array_filter($graph['classes'], fn (array $class) => ! $class['external'] && $class['kind'] !== 'file');
 
 $counts = [];
 $mismatches = [];

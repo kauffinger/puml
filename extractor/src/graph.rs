@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::verdict::Verdict;
 
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Serialize)]
 pub struct Graph {
@@ -17,6 +17,7 @@ pub struct Graph {
     pub unresolved: Vec<Unresolved>,
     pub stats: Stats,
     pub verdict: Verdict,
+    pub laravel: Laravel,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -123,6 +124,9 @@ pub struct Method {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returns: Option<String>,
     pub line: u32,
+    /// The classes the first parameter's type names, which is how Laravel discovers a listener's events.
+    #[serde(skip)]
+    pub first_parameter: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,9 +158,26 @@ pub enum EdgeKind {
     Static,
     Facade,
     Reference,
+    Route,
+    Middleware,
+    Listener,
+    Observer,
+    Policy,
+    Binding,
+    Schedule,
 }
 
 impl EdgeKind {
+    /// Wiring edges are what Laravel connects at runtime: a route to its controller, an event to its
+    /// listeners. They are drawn, but they are not dependencies in the code, so the rules, the cycles and
+    /// the metrics leave them out.
+    pub fn is_wiring(self) -> bool {
+        matches!(
+            self,
+            EdgeKind::Route | EdgeKind::Middleware | EdgeKind::Listener | EdgeKind::Observer | EdgeKind::Policy | EdgeKind::Binding | EdgeKind::Schedule
+        )
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             EdgeKind::Extends => "extends",
@@ -170,6 +191,13 @@ impl EdgeKind {
             EdgeKind::Static => "static",
             EdgeKind::Facade => "facade",
             EdgeKind::Reference => "reference",
+            EdgeKind::Route => "route",
+            EdgeKind::Middleware => "middleware",
+            EdgeKind::Listener => "listener",
+            EdgeKind::Observer => "observer",
+            EdgeKind::Policy => "policy",
+            EdgeKind::Binding => "binding",
+            EdgeKind::Schedule => "schedule",
         }
     }
 }
@@ -213,4 +241,106 @@ pub fn split_name(fqcn: &str) -> (&str, &str) {
         Some(index) => (&fqcn[..index], &fqcn[index + 1..]),
         None => ("", fqcn),
     }
+}
+
+/// What Laravel registers at boot, read from the code: each entry has the file:line it is written at.
+#[derive(Debug, Default, Serialize)]
+pub struct Laravel {
+    pub routes: Vec<RouteFact>,
+    pub listeners: Vec<ListenerFact>,
+    pub observers: Vec<ObserverFact>,
+    pub policies: Vec<PolicyFact>,
+    pub bindings: Vec<BindingFact>,
+    pub schedule: Vec<ScheduleFact>,
+    pub middleware: Vec<MiddlewareFact>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RouteFact {
+    /// The route file, or the service provider, that registers it.
+    pub from: String,
+    pub methods: Vec<String>,
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `Class@method`, `view:name`, `redirect:/to`, `livewire:component` or `closure`.
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    pub middleware: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub excluded_middleware: Vec<String>,
+    pub file: String,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ListenerFact {
+    pub event: String,
+    /// `Class@method`, or `closure`.
+    pub listener: String,
+    /// The listener's class; for a closure, the class it is written in.
+    pub class: Option<String>,
+    /// `discovered`, `listen` (Event::listen or $listen) or `subscribe`.
+    pub how: &'static str,
+    pub file: String,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ObserverFact {
+    pub model: String,
+    pub observer: String,
+    /// The model events the observer has a method for.
+    pub events: Vec<String>,
+    /// `observe`, `attribute` (#[ObservedBy]) or `property` ($observers).
+    pub how: &'static str,
+    pub file: String,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PolicyFact {
+    pub model: String,
+    pub policy: String,
+    /// `gate` (Gate::policy or $policies), `attribute` (#[UsePolicy]) or `convention` (the policy's name).
+    pub how: &'static str,
+    pub file: String,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BindingFact {
+    /// The class or key that is bound.
+    pub key: String,
+    /// The class the container builds for it; none when only the running code knows.
+    pub concrete: Option<String>,
+    /// `bind`, `singleton` or `scoped`.
+    pub lifetime: &'static str,
+    pub file: String,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ScheduleFact {
+    pub from: String,
+    /// `command`, `job`, `call` or `exec`.
+    pub task: &'static str,
+    /// The command name, the job class, `closure`, or the shell command.
+    pub target: String,
+    pub class: Option<String>,
+    pub file: String,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MiddlewareFact {
+    pub from: String,
+    /// `global`, `group:web` or `alias:auth`.
+    pub slot: String,
+    pub class: String,
+    pub file: String,
+    pub line: u32,
 }

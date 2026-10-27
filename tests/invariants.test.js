@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { DEFAULT_BUDGETS, indexGraph, moduleOf, parentView, project } from '../viewer/model.js';
 import { extract, repository } from './support.js';
 
-const graphs = { 'fixture/shop': extract(`${repository}fixtures/shop`) };
+const graphs = { 'fixture/shop': extract(`${repository}fixtures/shop`), 'fixture/wiring': extract(`${repository}fixtures/wiring`) };
 
 for (const name of ['laravelio', 'framework']) {
     const path = `${repository}out/${name}.json`;

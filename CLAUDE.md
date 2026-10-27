@@ -77,6 +77,12 @@ cd $L && DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/database.sqlite \
 
 - The bar is precision and recall of 1.0 for `extends`, `implements` and `uses-trait` on both corpora,
   and 34/34 relations on laravel.io.
+- Routes and wiring are judged against the booted app. Run both from the app root:
+  `DB_CONNECTION=sqlite DB_DATABASE=:memory: php ~/.t3/projects/puml/verify/routes.php ~/.t3/projects/puml/out/laravelio.json .`,
+  and the same with `verify/wiring.php`. The bar on laravel.io is 72 routes matched on every field with the
+  2 `Route::feeds()` routes flagged, and every wiring section with fp=0 fn=0. A flagged fact must have an
+  unresolved note on the line Laravel registers it from; an explained one must name the vendor file or
+  config key that made it.
 - Rule violations are checked against deptrac (installed outside the repository, e.g. `/tmp/puml-deptrac`):
   `node verify/deptrac-config.js out/laravelio.json $L > /tmp/puml-deptrac/laravelio.php`, run `vendor/bin/deptrac analyse -c
   laravelio.php --formatter json --output laravelio.json --no-progress --no-cache` there, then

@@ -161,15 +161,26 @@ six violations and one cycle.
 diff against `expected/diff.json` before and after the pull request is committed, and checks the edge
 changes against fresh extractions of both sides.
 
-## Graph JSON (version 2)
+## Graph JSON (version 3)
 
 ```
-{ version, project, path, generator, roots, packages, classes, edges, unresolved, stats, verdict }
+{ version, project, path, generator, roots, packages, classes, edges, unresolved, stats, verdict, laravel }
 class: { id, name, namespace, package, root, kind, external, layer, ... }
 edge: { from, to, kind, label?, evidence: [{ file, line }] }
 verdict: { rules_apply, rules_scope, rules, cycle_rule, layer_segments, violations: [{ rule, edge }],
            cycles, modules, fan_out, outliers, layers }
+laravel: { routes, listeners, observers, policies, bindings, schedule, middleware }, each fact with file and line
 ```
+
+Route files and `bootstrap/app.php` are classes of `kind: "file"` whose id is their relative path, in
+layer `entry`. Every edge of kind `route`, `middleware`, `listener`, `observer`, `policy`, `binding` or
+`schedule` stands for a fact of `laravel` at the same file:line (`tests/wiring.test.js` checks both
+directions). These wiring edges are left out of the rules, cycles, metrics and fan-out
+(`EdgeKind::is_wiring()` in Rust, `WIRING_KINDS` in the viewer). The facts are read in
+`extractor/src/routes.rs` and `wiring.rs`, and joined into edges in `wiring_graph.rs`. What the framework
+does differently between versions (router verbs, observable events, policy guessing, event discovery,
+default middleware aliases) is read from `vendor/laravel/framework`, with Laravel 11+ as the fallback.
+`fixtures/wiring/expected/laravel.json` holds the hand-written facts of the wiring fixture.
 
 A violation's `edge` is an index into `edges`. The JSON is the contract under test:
 `fixtures/shop/expected/` holds the hand-written expected graph and the expected projection at each
@@ -187,6 +198,8 @@ php verify/inheritance.php out/app.json path/to/app/vendor/autoload.php [--json 
 php verify/classes.php     out/app.json path/to/app
 php verify/relations.php   out/app.json path/to/app [--json report.json]
 php verify/facades.php     out/app.json path/to/app
+php verify/routes.php      out/app.json path/to/app [--json report.json]
+php verify/wiring.php      out/app.json path/to/app [--json report.json]
 ```
 
 | verifier | compares the graph against |
@@ -195,6 +208,14 @@ php verify/facades.php     out/app.json path/to/app
 | `classes.php` | the class-likes PHP's own tokenizer finds in every scanned file |
 | `relations.php` | `php artisan model:show --json` for every model, by relation name, relation type and related class (run it from the app root, with a working database connection) |
 | `facades.php` | the class each facade resolves to at runtime in the booted app |
+| `routes.php` | every route the booted app registers, recorded with the call stack that added it: methods, domain, URI, name, action, middleware, excluded middleware and the file:line of the innermost app frame. Routes only package code adds are listed, not scored |
+| `wiring.php` | the listeners, observers, policies, container bindings, scheduled tasks and HTTP middleware of the booted app, the gate and the schedule traced to the line that registers each entry |
+
+Run `routes.php` and `wiring.php` from the app root with `DB_CONNECTION=sqlite DB_DATABASE=:memory:`, so
+booting never touches the app's own database. A fact Laravel has and the graph lacks counts as flagged,
+not missed, only when the graph has an unresolved note on the very line Laravel's registration comes
+from. A fact registered by package code (a binding made from the app's `config/`, a package's own
+policy) is counted as explained, with the vendor file:line or config key that proves it.
 
 The rule violations are checked against [deptrac](https://github.com/deptrac/deptrac).
 `verify/deptrac-config.js` writes a deptrac configuration from the rule table in a graph's verdict, and

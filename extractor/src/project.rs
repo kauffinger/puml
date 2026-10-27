@@ -10,6 +10,8 @@ pub struct Project {
     pub name: String,
     pub psr4: Vec<Psr4Root>,
     pub vendor: VendorIndex,
+    /// `extra.laravel.dont-discover`: packages whose service providers Laravel does not register.
+    pub dont_discover: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -21,6 +23,8 @@ pub struct Psr4Root {
 pub struct VendorPackage {
     pub name: String,
     pub psr4: Vec<Psr4Root>,
+    /// `extra.laravel.providers`, which Laravel's package discovery registers.
+    pub providers: Vec<String>,
 }
 
 #[derive(Default)]
@@ -51,8 +55,12 @@ impl Project {
         }
 
         let vendor = VendorIndex::load(&vendor_dir(&root));
+        let dont_discover = composer["extra"]["laravel"]["dont-discover"]
+            .as_array()
+            .map(|names| names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
 
-        Project { root, name, psr4, vendor }
+        Project { root, name, psr4, vendor, dont_discover }
     }
 
     pub fn php_files(&self) -> Vec<PathBuf> {
@@ -64,13 +72,24 @@ impl Project {
             }
         }
 
+        collect_php_files(&self.root.join("routes"), &mut files);
+
+        let bootstrap = self.root.join("bootstrap/app.php");
+
+        if bootstrap.is_file() {
+            files.insert(bootstrap.canonicalize().unwrap_or(bootstrap));
+        }
+
         files.into_iter().collect()
     }
 
-    /// Whether a PHP file belongs to the graph, which reads only the files under the PSR-4 roots.
+    /// Whether a PHP file belongs to the graph, which reads the files under the PSR-4 roots and the files
+    /// Laravel boots from: bootstrap/app.php and routes/.
     pub fn owns(&self, path: &Path) -> bool {
         path.extension().is_some_and(|extension| extension == "php")
-            && self.psr4.iter().flat_map(|root| root.dirs.iter()).any(|dir| path.starts_with(dir))
+            && (self.psr4.iter().flat_map(|root| root.dirs.iter()).any(|dir| path.starts_with(dir))
+                || path.starts_with(self.root.join("routes"))
+                || path == self.root.join("bootstrap/app.php"))
     }
 
     pub fn relative(&self, path: &Path) -> String {
@@ -118,8 +137,12 @@ impl VendorIndex {
                 let install_path = install_path(package)?;
                 let install_path = install_path.canonicalize().unwrap_or(install_path);
                 let psr4 = psr4_roots(&package["autoload"]["psr-4"], &install_path);
+                let providers = package["extra"]["laravel"]["providers"]
+                    .as_array()
+                    .map(|providers| providers.iter().filter_map(|provider| provider.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
 
-                Some(VendorPackage { name, psr4 })
+                Some(VendorPackage { name, psr4, providers })
             })
             .collect();
 

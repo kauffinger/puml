@@ -6,9 +6,13 @@ mod diff_report;
 mod git;
 mod graph;
 mod laravel;
+mod php;
 mod project;
 mod report;
+mod routes;
 mod verdict;
+mod wiring;
+mod wiring_graph;
 
 use std::collections::HashMap;
 use std::collections::HashSet;

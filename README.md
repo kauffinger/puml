@@ -355,6 +355,32 @@ Every arrow comes from a name PHP would resolve, never from a text search:
 | `facade` | a facade call, drawn to the class behind the facade |
 | `reference` | `Foo::class`, `instanceof Foo`, `catch (Foo $e)` |
 
+## What Laravel wires up
+
+Much of a Laravel application is connected at boot rather than by code that names a class: a route
+reaches a controller, an event reaches its listeners. puml reads these registrations the way Laravel
+makes them, from `bootstrap/app.php`, `routes/` and the service providers Laravel actually registers
+(`bootstrap/providers.php`, `config/app.php`, package discovery), and draws them as dashed teal arrows
+from the place that registers them to the class that handles them:
+
+| kind | from |
+|---|---|
+| `route` | a route file to its controller or Livewire component, with methods, URI, name and middleware |
+| `middleware` | `bootstrap/app.php` or the HTTP kernel to global, group and alias middleware, and a route file to the middleware its routes use |
+| `listener` | an event to its listener: discovered, `$listen`, `Event::listen()` or a subscriber |
+| `observer` | a model to its observer, by `#[ObservedBy]` or `Model::observe()`, with the events it handles |
+| `policy` | a model to its policy: `Gate::policy()`, `#[UsePolicy]` or the naming convention |
+| `binding` | an abstract to the concrete the container builds for it |
+| `schedule` | `routes/console.php` or the console kernel to the command or job it schedules |
+
+Route files and `bootstrap/app.php` are nodes of their own, in an `entry` layer above `http`. Wiring is
+not a dependency: it never breaks a rule, never closes a cycle and does not count towards fan-out. `show`
+lists a class's routes, listeners, observers, policy and bindings with their `file:line`, and
+`show path/to/app routes/web.php` lists every route a file registers.
+
+A registration puml cannot read for sure, such as a route inside `if (app()->isLocal())` or a
+`Route::feeds()` macro, is listed under "unresolved" on its own line instead of being guessed.
+
 ## Limitations
 
 - **Install dependencies first.** Without `vendor/`, puml cannot tell that the project is a Laravel
@@ -364,6 +390,8 @@ Every arrow comes from a name PHP would resolve, never from a text search:
 - **Nothing is guessed.** A dependency that is only known at runtime, such as `new $class` or a relation
   whose related class is not written as `Foo::class`, is listed under "unresolved" with its `file:line`
   instead of being drawn.
+- **Wiring that depends on configuration or runtime state is not read.** A package that binds a class
+  named in `config/`, a route macro, or a registration inside a condition is noted, not drawn.
 - **`diff` reads vendor classes from the head.** Both graphs resolve against the `vendor/` directory on
   disk. When a pull request changes `composer.lock`, the report says so.
 - **Editor links point at your machine.** They use the absolute path of the project at extraction time,

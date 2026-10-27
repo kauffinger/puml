@@ -1,0 +1,34 @@
+{
+    "routes": [
+        { "from": "routes/api.php", "methods": ["GET", "HEAD"], "uri": "api/posts", "name": "api.posts", "action": "App\\Http\\Controllers\\PostController@index", "target": "App\\Http\\Controllers\\PostController", "middleware": ["api"], "file": "routes/api.php", "line": 6 },
+        { "from": "routes/web.php", "methods": ["GET", "HEAD"], "uri": "/", "name": "home", "action": "view:welcome", "middleware": ["web"], "file": "routes/web.php", "line": 6 },
+        { "from": "routes/web.php", "methods": ["GET", "HEAD"], "uri": "posts", "name": "posts.index", "action": "App\\Http\\Controllers\\PostController@index", "target": "App\\Http\\Controllers\\PostController", "middleware": ["web"], "file": "routes/web.php", "line": 9 },
+        { "from": "routes/web.php", "methods": ["GET", "HEAD"], "uri": "posts/{post}", "name": "posts.show", "action": "App\\Http\\Controllers\\PostController@show", "target": "App\\Http\\Controllers\\PostController", "middleware": ["web"], "file": "routes/web.php", "line": 10 },
+        { "from": "routes/web.php", "methods": ["POST"], "uri": "posts", "name": "posts.store", "action": "App\\Http\\Controllers\\PostController@store", "target": "App\\Http\\Controllers\\PostController", "middleware": ["web", "admin"], "file": "routes/web.php", "line": 14 },
+        { "from": "routes/web.php", "methods": ["DELETE"], "uri": "posts/{post}", "action": "App\\Http\\Controllers\\PostController@destroy", "target": "App\\Http\\Controllers\\PostController", "middleware": ["web", "admin"], "excluded_middleware": ["web"], "file": "routes/web.php", "line": 15 }
+    ],
+    "listeners": [
+        { "event": "App\\Events\\PostPublished", "listener": "App\\Listeners\\NotifySubscribers@handle", "class": "App\\Listeners\\NotifySubscribers", "how": "discovered", "file": "app/Listeners/NotifySubscribers.php", "line": 9 },
+        { "event": "App\\Events\\PostPublished", "listener": "App\\Listeners\\WarmCache@handle", "class": "App\\Listeners\\WarmCache", "how": "listen", "file": "app/Providers/AppServiceProvider.php", "line": 21 }
+    ],
+    "observers": [
+        { "model": "App\\Models\\Post", "observer": "App\\Observers\\PostObserver", "events": ["created", "deleted"], "how": "attribute", "file": "app/Models/Post.php", "line": 9 }
+    ],
+    "policies": [
+        { "model": "App\\Models\\Post", "policy": "App\\Policies\\PostPolicy", "how": "convention", "file": "app/Policies/PostPolicy.php", "line": 7 }
+    ],
+    "bindings": [
+        { "key": "App\\Contracts\\Feed", "concrete": "App\\Services\\RssFeed", "lifetime": "singleton", "file": "app/Providers/AppServiceProvider.php", "line": 16 }
+    ],
+    "schedule": [
+        { "from": "routes/console.php", "task": "command", "target": "posts:prune-drafts", "class": "App\\Console\\Commands\\PruneDrafts", "file": "routes/console.php", "line": 7 },
+        { "from": "routes/console.php", "task": "job", "target": "App\\Jobs\\SendDigest", "class": "App\\Jobs\\SendDigest", "file": "routes/console.php", "line": 8 }
+    ],
+    "middleware": [
+        { "from": "bootstrap/app.php", "slot": "group:web", "class": "App\\Http\\Middleware\\TrackVisits", "file": "bootstrap/app.php", "line": 16 },
+        { "from": "bootstrap/app.php", "slot": "alias:admin", "class": "App\\Http\\Middleware\\EnsureAdmin", "file": "bootstrap/app.php", "line": 17 }
+    ],
+    "unresolved": [
+        { "kind": "route", "file": "routes/web.php", "line": 19 }
+    ]
+}

@@ -227,6 +227,10 @@ pub fn place_of(class: &ClassNode) -> Place<'_> {
         return Place { layer: "vendor", segment: None };
     }
 
+    if class.kind == "file" {
+        return Place { layer: "entry", segment: None };
+    }
+
     let root = class.root.as_deref().unwrap_or("");
     let segment = under_root(&class.namespace, root).split('\\').next().filter(|segment| !segment.is_empty());
 
@@ -278,7 +282,7 @@ impl Verdict {
         let mut violations = Vec::new();
 
         if rules_apply {
-            for (index, edge) in edges.iter().enumerate() {
+            for (index, edge) in edges.iter().enumerate().filter(|(_, edge)| !edge.kind.is_wiring()) {
                 if let Some(rule) = rule_between(&place_of(classes[edge.from.as_str()]), &place_of(classes[edge.to.as_str()])) {
                     violations.push(Violation { rule: rule.id, edge: index });
                 }
@@ -328,11 +332,11 @@ fn app_modules<'a>(graph: &Parts<'a>, classes: &HashMap<&str, &'a ClassNode>, vi
     let mut nodes: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
     let mut edges: BTreeMap<(String, String), ModuleEdge> = BTreeMap::new();
 
-    for class in graph.classes.iter().filter(|class| !class.external) {
+    for class in graph.classes.iter().filter(|class| !class.external && class.kind != "file") {
         nodes.entry(module_of(class)).or_default().push(&class.id);
     }
 
-    for (index, edge) in graph.edges.iter().enumerate() {
+    for (index, edge) in graph.edges.iter().enumerate().filter(|(_, edge)| !edge.kind.is_wiring()) {
         let (from, to) = (classes[edge.from.as_str()], classes[edge.to.as_str()]);
 
         if is_vendor(from) || is_vendor(to) {
@@ -564,7 +568,7 @@ fn module_cycles<'a>(
 
         let mut folded: BTreeMap<(String, String), ModuleEdge> = BTreeMap::new();
 
-        for (index, edge) in graph.edges.iter().enumerate() {
+        for (index, edge) in graph.edges.iter().enumerate().filter(|(_, edge)| !edge.kind.is_wiring()) {
             let (from, to) = (classes[edge.from.as_str()], classes[edge.to.as_str()]);
 
             if is_vendor(from) || is_vendor(to) {
@@ -719,7 +723,7 @@ fn pruned_greedy_cut(node_ids: &[String], edges: &[ModuleEdge]) -> Vec<ModuleEdg
 fn class_fan_out<'a>(graph: &Parts<'a>, classes: &HashMap<&str, &ClassNode>) -> Vec<(&'a str, usize)> {
     let mut outgoing: HashMap<&str, BTreeSet<&str>> = HashMap::new();
 
-    for edge in graph.edges {
+    for edge in graph.edges.iter().filter(|edge| !edge.kind.is_wiring()) {
         let (from, to) = (classes[edge.from.as_str()], classes[edge.to.as_str()]);
 
         if !is_vendor(to) && module_of(to) != module_of(from) {
@@ -730,7 +734,7 @@ fn class_fan_out<'a>(graph: &Parts<'a>, classes: &HashMap<&str, &ClassNode>) -> 
     graph
         .classes
         .iter()
-        .filter(|class| !is_vendor(class))
+        .filter(|class| !is_vendor(class) && class.kind != "file")
         .map(|class| (class.id.as_str(), outgoing.get(class.id.as_str()).map_or(0, BTreeSet::len)))
         .collect()
 }
@@ -751,7 +755,7 @@ fn module_metrics(
     let mut outgoing: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut incoming: HashMap<&str, Vec<&str>> = HashMap::new();
 
-    for edge in graph.edges {
+    for edge in graph.edges.iter().filter(|edge| !edge.kind.is_wiring()) {
         outgoing.entry(&edge.from).or_default().push(&edge.to);
         incoming.entry(&edge.to).or_default().push(&edge.from);
     }
@@ -844,7 +848,7 @@ fn layers(graph: &Parts<'_>) -> Vec<LayerEntry> {
     for class in graph.classes {
         let place = place_of(class);
 
-        if place.layer == "vendor" {
+        if place.layer == "vendor" || place.layer == "entry" {
             continue;
         }
 

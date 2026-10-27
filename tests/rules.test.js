@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { DEFAULT_BUDGETS, indexGraph, moduleOf, project } from '../viewer/model.js';
+import { DEFAULT_BUDGETS, indexGraph, moduleOf, project, WIRING_KINDS } from '../viewer/model.js';
 import { extract, readJson, repository } from './support.js';
 
 const blog = indexGraph(extract(`${repository}fixtures/blog`));
@@ -229,6 +229,7 @@ for (const [name, index] of Object.entries(graphs)) {
                 const behind = graph.edges
                     .map((candidate, position) => ({ candidate, position }))
                     .filter(({ candidate }) => moduleWithFolds(candidate.from) === edge.from && moduleWithFolds(candidate.to) === edge.to)
+                    .filter(({ candidate }) => !WIRING_KINDS.has(candidate.kind))
                     .filter(({ candidate }) => !index.classes.get(candidate.from).external || index.classes.get(candidate.from).root != null)
                     .filter(({ candidate }) => !index.classes.get(candidate.to).external || index.classes.get(candidate.to).root != null)
                     .map(({ position }) => position);

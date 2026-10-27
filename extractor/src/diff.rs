@@ -230,11 +230,11 @@ impl<'a> Side<'a> {
     }
 
     fn declared(&self, id: &str) -> Option<&'a ClassNode> {
-        self.classes.get(id).copied().filter(|class| !class.external)
+        self.classes.get(id).copied().filter(|class| is_declared_class(class))
     }
 
     fn declared_classes(&self) -> impl Iterator<Item = &'a ClassNode> {
-        self.graph.classes.iter().filter(|class| !class.external)
+        self.graph.classes.iter().filter(|class| is_declared_class(class))
     }
 }
 
@@ -290,6 +290,11 @@ impl Diff {
     pub fn worsens(&self) -> bool {
         !self.violations.added.is_empty() || self.cycles.iter().any(|cycle| !cycle.joined.is_empty()) || !self.dangling.is_empty()
     }
+}
+
+/// Route files and bootstrap/app.php are nodes of the graph too, but they declare no class.
+fn is_declared_class(class: &ClassNode) -> bool {
+    !class.external && class.kind != "file"
 }
 
 fn class_ref(class: &ClassNode) -> ClassRef {
@@ -434,7 +439,7 @@ fn module_weights(graph: &Graph) -> BTreeMap<(String, String), (u64, u64)> {
     for (index, edge) in graph.edges.iter().enumerate() {
         let (from, to) = (classes[edge.from.as_str()], classes[edge.to.as_str()]);
 
-        if is_vendor(from) || is_vendor(to) {
+        if edge.kind.is_wiring() || is_vendor(from) || is_vendor(to) {
             continue;
         }
 
@@ -719,6 +724,7 @@ mod tests {
     use crate::git::FileStatus;
     use crate::graph::Evidence;
     use crate::graph::FORMAT_VERSION;
+    use crate::graph::Laravel;
     use crate::graph::Package;
     use crate::graph::PackageKind;
     use crate::graph::Parameter;
@@ -778,6 +784,7 @@ mod tests {
             edges,
             unresolved: Vec::new(),
             stats: Stats::default(),
+            laravel: Laravel::default(),
         }
     }
 
@@ -935,6 +942,7 @@ mod tests {
             params: param.map(|kind| Parameter { name: "value".to_string(), r#type: Some(kind.to_string()) }).into_iter().collect(),
             returns: None,
             line: 4,
+            first_parameter: Vec::new(),
         };
 
         let mut before = declare("App\\Models\\Post");

@@ -206,7 +206,7 @@ impl<'ast, 'arena> Walker<'ast, 'arena, FacadeContext<'_, 'arena>> for FacadeWal
     }
 }
 
-fn string_keyed_classes(path: &Path, class: &str, method: &str) -> HashMap<String, String> {
+pub fn string_keyed_classes(path: &Path, class: &str, method: &str) -> HashMap<String, String> {
     let Ok(contents) = std::fs::read(path) else {
         return HashMap::new();
     };

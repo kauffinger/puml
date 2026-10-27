@@ -87,7 +87,7 @@ foreach (array_keys($files) as $file) {
 $found = [];
 
 foreach ($graph['classes'] as $class) {
-    if (! $class['external']) {
+    if (! $class['external'] && $class['kind'] !== 'file') {
         $found[strtolower($class['id'])] = $class['id'];
     }
 }

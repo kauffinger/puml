@@ -9,7 +9,7 @@ const expected = readJson('fixtures/shop/expected/graph.json');
 const levels = readJson('fixtures/shop/expected/levels.json');
 
 test('the graph declares its format version', () => {
-    assert.equal(graph.version, 2);
+    assert.equal(graph.version, 3);
     assert.equal(graph.project, 'fixture/shop');
     assert.deepEqual(graph.roots, ['Shop']);
 });

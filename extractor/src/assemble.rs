@@ -23,6 +23,8 @@ use crate::laravel::FacadeTarget;
 use crate::project::Project;
 use crate::verdict::Verdict;
 use crate::verdict::place_of;
+use crate::wiring::WiringFacts;
+use crate::wiring_graph;
 
 const PSEUDO_TYPES: &[&str] = &["self", "static", "parent", "$this"];
 
@@ -40,8 +42,11 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
     let mut unresolved: Vec<Unresolved> = Vec::new();
     let mut dropped_declarations: HashSet<(String, u32)> = HashSet::new();
     let mut stats = Stats { files: files.len(), ..Stats::default() };
+    let mut wiring: Vec<(String, WiringFacts)> = Vec::new();
 
     for (path, facts) in files {
+        wiring.push((project.relative(&path), facts.wiring));
+
         stats.files_with_parse_errors += usize::from(facts.has_parse_errors);
 
         for mut class in facts.classes {
@@ -71,6 +76,17 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
         unresolved.extend(facts.unresolved);
     }
 
+    let wiring: Vec<(String, &WiringFacts)> = wiring.iter().map(|(path, facts)| (path.clone(), facts)).collect();
+    let wired = wiring_graph::wire(project, &classes, &raw_edges, &wiring);
+    let file_nodes = wired.files;
+
+    for node in &file_nodes {
+        canonical.insert(node.id.to_ascii_lowercase(), node.id.clone());
+    }
+
+    raw_edges.extend(wired.edges);
+    unresolved.extend(wired.unresolved);
+
     let mut facades = FacadeResolver::new(project);
     let mut reported_facades = BTreeSet::new();
     let mut grouped: BTreeMap<(String, String, EdgeKind, Option<String>), Grouped> = BTreeMap::new();
@@ -89,6 +105,7 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
         }
 
         edge.to = canonical.get(&edge.to.to_ascii_lowercase()).cloned().unwrap_or(edge.to);
+        edge.from = canonical.get(&edge.from.to_ascii_lowercase()).cloned().unwrap_or(edge.from);
 
         if edge.kind == EdgeKind::Static {
             let source = sources.get(&edge.to.to_ascii_lowercase()).cloned();
@@ -151,25 +168,25 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
 
     let mut externals: BTreeMap<String, ClassNode> = BTreeMap::new();
 
-    for edge in &edges {
-        if canonical.contains_key(&edge.to.to_ascii_lowercase()) || externals.contains_key(&edge.to) {
+    for id in edges.iter().flat_map(|edge| [&edge.from, &edge.to]) {
+        if canonical.contains_key(&id.to_ascii_lowercase()) || externals.contains_key(id) {
             continue;
         }
 
-        let root = project.root_for(&edge.to).map(str::to_string);
+        let root = project.root_for(id).map(str::to_string);
 
-        let (package, kind) = match project.vendor.package_for(&edge.to) {
+        let (package, kind) = match project.vendor.package_for(id) {
             _ if root.is_some() => (project.name.clone(), PackageKind::App),
             Some(package) => (package.to_string(), PackageKind::Vendor),
-            None if !edge.to.contains('\\') => ("php".to_string(), PackageKind::Php),
-            None => (edge.to.split('\\').next().unwrap_or_default().to_string(), PackageKind::Unknown),
+            None if !id.contains('\\') => ("php".to_string(), PackageKind::Php),
+            None => (id.split('\\').next().unwrap_or_default().to_string(), PackageKind::Unknown),
         };
 
-        let mut node = ClassNode::external(&edge.to, &package);
+        let mut node = ClassNode::external(id, &package);
         node.root = root;
 
         packages.insert(Package { name: package, kind });
-        externals.insert(edge.to.clone(), node);
+        externals.insert(id.clone(), node);
     }
 
     describe_vendor_traits(project, &edges, &mut externals, &mut unresolved);
@@ -202,6 +219,8 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
         class.layer = place_of(class).layer;
     }
 
+    classes.extend(file_nodes);
+
     let packages: Vec<Package> = packages.into_iter().collect();
     let verdict = Verdict::of(&packages, &classes, &edges);
 
@@ -217,6 +236,7 @@ pub fn assemble(project: &Project, files: Vec<(PathBuf, FileFacts)>) -> Graph {
         unresolved,
         stats,
         verdict,
+        laravel: wired.laravel,
     }
 }
 
