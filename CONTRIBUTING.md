@@ -242,6 +242,8 @@ shot modules 'level=1'
 shot http    'level=2&focus=App%5CHttp'
 shot thread  'level=3&focus=App%5CModels%5CThread'
 shot edge    'level=1&from=App%5CJobs&to=App%5CHttp'
+shot routes  'level=3&focus=routes%2Fweb.php'
+shot routes-edge 'level=1&from=routes&to=App%5CHttp'
 ```
 
 ## Releasing
@@ -253,8 +255,8 @@ To release, bump `version` in `extractor/Cargo.toml` and the `version` input's d
 commit, and push a matching tag:
 
 ```sh
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 `.github/workflows/release.yml` fails if the tag differs from the crate version or from the action's

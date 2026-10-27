@@ -20,7 +20,7 @@ inputs:
     default: 'false'
   version:
     description: The puml-extract release to use.
-    default: v0.5.0
+    default: v0.6.0
   github-token:
     description: The token used to comment. It needs pull-requests write permission.
     default: ${{ github.token }}

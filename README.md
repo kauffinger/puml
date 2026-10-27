@@ -6,7 +6,7 @@ See how your Laravel or PHP application is actually put together. puml reads you
 modules, classes and dependencies in an interactive diagram you can drill into, and tells you where the
 architecture breaks the conventions a Laravel application is expected to follow.
 
-![The modules of laravel.io, with the rule violations between App\Jobs and App\Http in purple and a module cycle in red](assets/screenshots/modules.png)
+![The modules of laravel.io, with the route files and bootstrap/app.php above them, the rule violations between App\Jobs and App\Http in purple and a module cycle in red](assets/screenshots/modules.png)
 
 - **One command, one file.** `puml-extract` scans a project in well under a second and writes a single
   HTML file. Open it in any browser; nothing to install, no server, no PHP runtime needed.
@@ -25,7 +25,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.5.0
+VERSION=v0.6.0
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -219,7 +219,7 @@ An excerpt, for a pull request on `fixtures/blog` that moves a job from the requ
 and renames a listener:
 
 ```
-puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.5.0 (mago 1.54.0)
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.6.0 (mago 1.54.0)
 classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
 architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
 
@@ -271,7 +271,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: kauffinger/puml@v0.5.0
+      - uses: kauffinger/puml@v0.6.0
         with:
           strict: true
 ```
@@ -373,10 +373,15 @@ from the place that registers them to the class that handles them:
 | `binding` | an abstract to the concrete the container builds for it |
 | `schedule` | `routes/console.php` or the console kernel to the command or job it schedules |
 
+![routes/web.php of laravel.io as a UML box listing its routes, with a dashed arrow to each controller](assets/screenshots/routes.png)
+
 Route files and `bootstrap/app.php` are nodes of their own, in an `entry` layer above `http`. Wiring is
 not a dependency: it never breaks a rule, never closes a cycle and does not count towards fan-out. `show`
 lists a class's routes, listeners, observers, policy and bindings with their `file:line`, and
-`show path/to/app routes/web.php` lists every route a file registers.
+`show path/to/app routes/web.php` lists every route a file registers. Open the arrow from `routes` to
+`App\Http` to see which controller each route file reaches, and how often:
+
+![The edge view routes to App\Http: web.php and api.php with a dashed route arrow to each controller](assets/screenshots/routes-edge.png)
 
 A registration puml cannot read for sure, such as a route inside `if (app()->isLocal())` or a
 `Route::feeds()` macro, is listed under "unresolved" on its own line instead of being guessed.
