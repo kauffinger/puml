@@ -1,91 +1,97 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-labelledby="title">
   <title id="title">puml: a puma drawn as a UML class</title>
   <style>
-    .line { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .paper { fill: #fff; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
-    .dashed { stroke-width: 2.5; stroke-linecap: butt; stroke-dasharray: 6 4; stroke-dashoffset: 8; }
-    .far { opacity: .62; }
-    .leg .line { stroke-width: 2.5; }
+    .line { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .dashed { stroke-linecap: butt; stroke-dasharray: 7 3; stroke-dashoffset: 8.5; }
+    .paper { fill: #fff; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .ear { fill: #c084fc; }
     .rule { fill: none; stroke: #c084fc; stroke-width: 1; }
-    .shadow { fill: #3b0764; opacity: .32; }
-    .name { font: 700 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; fill: #3b0764; }
-    .member { font: 9px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #6b21a8; }
-    text { text-rendering: geometricPrecision; }
+    .ink { fill: #3b0764; }
+    .eye { fill: #fbbf24; stroke: #3b0764; stroke-width: 1; stroke-linejoin: round; }
+    .nose { fill: #3b0764; stroke: #3b0764; stroke-width: 1; stroke-linejoin: round; }
+    .lid { fill: none; stroke: #3b0764; stroke-width: 1; stroke-linecap: round; }
+    .shadow { fill: #3b0764; stroke: #3b0764; stroke-width: 2; stroke-linejoin: round; opacity: .32; }
+    .far { opacity: .6; }
+    .whisker { stroke-width: 1; }
 
-    .draw { animation: draw var(--dur, .5s) var(--at) cubic-bezier(.4, 0, .2, 1) backwards; }
-    .paper.draw { animation: draw var(--dur, .5s) var(--at) cubic-bezier(.4, 0, .2, 1) backwards, flood .3s calc(var(--at) + var(--dur, .5s) - .1s) ease-out backwards; }
-    .rise { animation: rise .45s var(--at) cubic-bezier(.16, 1, .3, 1) backwards; }
-    .shadow, .fade { animation: fade .45s var(--at) ease-out backwards; }
-    .unfurl { animation: unfurl .55s var(--at) cubic-bezier(.16, 1, .3, 1) backwards; }
+    .draw { animation: draw var(--dur) var(--at) cubic-bezier(.45, 0, .25, 1) backwards; }
+    .paper.draw, .ear.draw { animation: draw var(--dur) var(--at) cubic-bezier(.45, 0, .25, 1) backwards, flood 0.24s calc(var(--at) + var(--dur)) cubic-bezier(.45, 0, .25, 1) backwards; }
+    .rise { animation: rise 0.3s var(--at) cubic-bezier(.45, 0, .25, 1) backwards; }
+    .fade { animation: fade 0.24s var(--at) cubic-bezier(.45, 0, .25, 1) backwards; }
+    .shadow { animation: fade 0.36s var(--at) cubic-bezier(.45, 0, .25, 1) backwards; }
+    .unfurl { animation: unfurl 0.48s var(--at) cubic-bezier(.45, 0, .25, 1) backwards; }
+    .wake { transform-origin: 256px 70px; animation: wake 0.44s 1.62s ease-in-out backwards; }
+    .open { transform-box: fill-box; transform-origin: 50% 85%; animation: open 0.3s 1.56s cubic-bezier(.3, 1.4, .5, 1) backwards; }
+
+    .upper, .breathe { animation: breathe 2.4s 2.06s ease-in-out infinite alternate; }
+    .stretch { transform-origin: 0 129px; animation: stretch 2.4s 2.06s ease-in-out infinite alternate; }
     .wave { animation: wave 2.2s ease-in-out infinite alternate; }
-    .eye-open { transform-box: fill-box; transform-origin: center; animation: open .3s 1.6s cubic-bezier(.3, 1.5, .5, 1) backwards; }
-    .eye { transform-box: fill-box; transform-origin: center; animation: blink 9s 3s infinite; }
-    .ear-wake { transform-origin: 249px 61px; animation: wake .5s 1.65s ease-in-out; }
-    .ear-flick { transform-origin: 249px 61px; animation: flick 11s 5s infinite; }
-    .head { transform-origin: 234px 72px; animation: look 13s 6s ease-in-out infinite; }
-    .upper { animation: breathe 2.4s 2s ease-in-out infinite alternate; }
-    .leg { transform-origin: 0 146px; animation: stretch 2.4s 2s ease-in-out infinite alternate; }
+    .blink { transform-box: fill-box; transform-origin: 50% 85%; animation: blink 14.4s 2.06s ease-in-out infinite; }
+    .flick { transform-origin: 256px 70px; animation: flick 14.4s 2.06s ease-in-out infinite; }
+    .head { transform-origin: 234px 81px; animation: look 14.4s 2.06s ease-in-out infinite; }
 
     @keyframes draw { from { stroke-dasharray: 1 2; stroke-dashoffset: 1; opacity: 0; } 1% { opacity: 1; } to { stroke-dasharray: 1 2; stroke-dashoffset: 0; } }
     @keyframes flood { from { fill-opacity: 0; } }
-    @keyframes rise { from { opacity: 0; transform: translateY(3px); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(2px); } }
     @keyframes fade { from { opacity: 0; } }
-    @keyframes unfurl { from { opacity: 0; transform: rotate(var(--u)); } 20% { opacity: 1; } }
-    @keyframes wave { from { transform: rotate(calc(var(--a) * -1)); } to { transform: rotate(var(--a)); } }
-    @keyframes open { from { transform: scaleY(0); } }
-    @keyframes blink { 0%, 22.5%, 25.5%, 78.5%, 81%, 83.5%, 86%, 100% { transform: none; } 24%, 79.8%, 84.8% { transform: scaleY(.08); } }
-    @keyframes wake { 35% { transform: rotate(-14deg); } 70% { transform: rotate(3deg); } }
-    @keyframes flick { 0%, 60%, 100% { transform: none; } 61%, 63% { transform: rotate(-20deg); } 65% { transform: rotate(4deg); } 66.5% { transform: none; } }
-    @keyframes look { 0%, 66%, 100% { transform: none; } 71%, 81% { transform: rotate(-4deg); } 86% { transform: none; } }
+    @keyframes unfurl { from { opacity: 0; transform: rotate(var(--u)); } 30% { opacity: 1; } }
+    @keyframes open { from { transform: scaleY(.1); } }
+    @keyframes wake { 30% { transform: rotate(-14deg); } 65% { transform: rotate(3deg); } }
     @keyframes breathe { to { transform: translateY(-1px); } }
-    @keyframes stretch { to { transform: scaleY(1.025); } }
+    @keyframes stretch { to { transform: scaleY(1.0625); } }
+    @keyframes wave { to { transform: rotate(var(--a)); } }
+    @keyframes blink { 0%, 16.667%, 18.333%, 89.583%, 91.25%, 92.361%, 94.028%, 100% { transform: none; } 17.292%, 17.5%, 90.208%, 90.417%, 92.986%, 93.194% { transform: scaleY(.1); } }
+    @keyframes flick { 0%, 37.5%, 39.931%, 100% { transform: none; } 37.986%, 38.403% { transform: rotate(-18deg); } 39.097% { transform: rotate(4deg); } }
+    @keyframes look { 0%, 66.667%, 84.028%, 100% { transform: none; } 70.833%, 79.167% { transform: rotate(-4deg); } }
 
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
   </style>
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="tile" x2="1" y2="1">
       <stop offset="0" stop-color="#a855f7"/>
       <stop offset="1" stop-color="#7e22ce"/>
     </linearGradient>
+    <radialGradient id="ground">
+      <stop offset="0" stop-color="#3b0764" stop-opacity=".32"/>
+      <stop offset="1" stop-color="#3b0764" stop-opacity="0"/>
+    </radialGradient>
     <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
       <circle cx="6" cy="6" r=".8" fill="#fff" fill-opacity=".16"/>
     </pattern>
-    <filter id="soft" x="-20%" y="-200%" width="140%" height="500%"><feGaussianBlur stdDeviation="2"/></filter>
   </defs>
 
   <rect width="320" height="180" rx="28" fill="url(#tile)"/>
   <rect width="320" height="180" rx="28" fill="url(#grid)"/>
-  <rect x=".5" y=".5" width="319" height="179" rx="27.5" fill="none" stroke="#fff" stroke-opacity=".14"/>
-
-  <ellipse class="fade" style="--at: 1s" cx="162" cy="147.5" rx="80" ry="3.5" fill="#3b0764" opacity=".35" filter="url(#soft)"/>
+  <rect x=".5" y=".5" width="319" height="179" rx="27.5" fill="none" stroke="#fff" stroke-opacity=".16"/>
+  <ellipse class="fade" style="--at: 1.5s" cx="160" cy="136" rx="88" ry="6" fill="url(#ground)"/>
 
   <g class="leg far">
-    <path class="shadow" style="--at: 1.2s" d="M122 142 h14 v6 h-14 Z"/>
-    <path class="line draw" style="--at: 0.6s" pathLength="1" d="M124 118 L118 131 L125 140"/>
-    <path class="paper draw" style="--at: 0.5s" pathLength="1" d="M124 106 L128 112 L124 118 L120 112 Z"/>
-    <path class="paper draw" style="--at: 0.9s" pathLength="1" d="M120 140 H134 V146 H120 Z"/>
+    <path class="shadow" style="--at: 1.5s" d="M123 131H132V137H118V131Z"/>
+    <g class="stretch"><path class="line draw" style="--at: 0.54s; --dur: 0.18s" pathLength="1" d="M122 113L116 122L121 129"/></g>
+    <g class="breathe"><path class="paper draw" style="--at: 0.36s; --dur: 0.18s" pathLength="1" d="M122 101L126 107L122 113L118 107Z"/></g>
+    <path class="paper draw" style="--at: 0.78s; --dur: 0.2s" pathLength="1" d="M121 129H130V135H116V129Z"/>
   </g>
   <g class="leg far">
-    <path class="shadow" style="--at: 1.2s" d="M188 142 h14 v6 h-14 Z"/>
-    <path class="line draw" style="--at: 0.7s" pathLength="1" d="M196 118 L191 140"/>
-    <path class="paper draw" style="--at: 0.55s" pathLength="1" d="M196 106 L200 112 L196 118 L192 112 Z"/>
-    <path class="paper draw" style="--at: 0.9s" pathLength="1" d="M186 140 H200 V146 H186 Z"/>
+    <path class="shadow" style="--at: 1.5s" d="M196 131H205V137H191V131Z"/>
+    <g class="stretch"><path class="line draw" style="--at: 0.42s; --dur: 0.18s" pathLength="1" d="M196 113L194 129"/></g>
+    <g class="breathe"><path class="paper draw" style="--at: 0.24s; --dur: 0.18s" pathLength="1" d="M196 101L200 107L196 113L192 107Z"/></g>
+    <path class="paper draw" style="--at: 0.6s; --dur: 0.2s" pathLength="1" d="M194 129H203V135H189V129Z"/>
   </g>
 
   <g class="upper">
-    <g class="unfurl" style="--at: 0.85s; --u: 10deg; transform-origin: 92px 66px">
-      <g class="wave" style="--a: 1.5deg; animation-delay: 0.00s; transform-origin: 92px 66px">
-        <path class="line dashed" pathLength="30" d="M92 66 C79.7 66 70.4 72 65.1 81.8"/>
-        <g class="unfurl" style="--at: 0.97s; --u: 18deg; transform-origin: 65.1px 81.8px">
-          <g class="wave" style="--a: 3deg; animation-delay: -0.35s; transform-origin: 65.1px 81.8px">
-            <path class="line dashed" pathLength="30" d="M65.1 81.8 C61.8 87.9 60 95.5 60 104 C60 107.5 59.8 110.8 59.4 113.8"/>
-            <g class="unfurl" style="--at: 1.09s; --u: 26deg; transform-origin: 59.4px 113.8px">
-              <g class="wave" style="--a: 5deg; animation-delay: -0.70s; transform-origin: 59.4px 113.8px">
-                <path class="line dashed" pathLength="30" d="M59.4 113.8 C57.8 127.4 52.4 136.9 42.4 139.5"/>
-                <g class="unfurl" style="--at: 1.21s; --u: 34deg; transform-origin: 42.4px 139.5px">
-                  <g class="wave" style="--a: 8deg; animation-delay: -1.05s; transform-origin: 42.4px 139.5px">
-                    <path class="line dashed" pathLength="30" d="M42.4 139.5 C41.6 139.7 40.8 139.9 40 140 C28 141 22 132 24 120"/>
-                    <path class="line" d="M27.6 128.7 L24 120 L17.8 127.1"/>
+    <g class="unfurl" style="--at: 0.48s; --u: 8deg; transform-origin: 92px 61px">
+      <g class="wave" style="--a: 1.5deg; animation-delay: 2.06s; transform-origin: 92px 61px">
+        <path class="line dashed" pathLength="30" d="M92 61 C83.8 62.6 75.6 68.3 69 78.1"/>
+        <g class="unfurl" style="--at: 0.66s; --u: 14deg; transform-origin: 69px 78.1px">
+          <g class="wave" style="--a: 3deg; animation-delay: 2.36s; transform-origin: 69px 78.1px">
+            <path class="line dashed" pathLength="30" d="M69 78.1 C67.6 80.2 66.2 82.5 65 85 C61.7 91.5 59.1 98.2 56.4 104.6"/>
+            <g class="unfurl" style="--at: 0.84s; --u: 20deg; transform-origin: 56.4px 104.6px">
+              <g class="wave" style="--a: 5deg; animation-delay: 2.66s; transform-origin: 56.4px 104.6px">
+                <path class="line dashed" pathLength="30" d="M56.4 104.6 C53.2 111.9 49.8 118.7 45 124 C43.4 125.6 41.5 127 39.5 128"/>
+                <g class="unfurl" style="--at: 1.08s; --u: 26deg; transform-origin: 39.5px 128px">
+                  <g class="wave" style="--a: 8deg; animation-delay: 2.96s; transform-origin: 39.5px 128px">
+                    <path class="line dashed" pathLength="30" d="M39.5 128 C34.3 130.7 28.4 131.2 24 129 C20 127 18 123 18 118"/>
+                    <path class="line" d="M13.3 125.7L18 118L22.7 125.7"/>
                   </g>
                 </g>
               </g>
@@ -95,46 +101,45 @@
       </g>
     </g>
 
-    <path class="shadow" style="--at: 1.1s" d="M95 61 H223 V109 H95 Z"/>
-    <path class="paper draw" style="--at: 0s; --dur: .7s" pathLength="1" d="M92 58 H220 V106 H92 Z"/>
-    <path class="rule draw" style="--at: .95s" pathLength="1" d="M93 76.5 H219"/>
-    <path class="rule draw" style="--at: 1.05s" pathLength="1" d="M93 91.5 H219"/>
-    <text class="name rise" style="--at: 1.05s" x="156" y="71.5" text-anchor="middle">Puma</text>
-    <text class="member rise" style="--at: 1.15s" x="99" y="86.5">- claws: 18</text>
-    <text class="member rise" style="--at: 1.25s" x="99" y="101.5">+ pounce()</text>
-
-    <path class="paper draw" style="--at: .45s" pathLength="1" d="M220 72 L227 67.5 L234 72 L227 76.5 Z"/>
+    <path class="shadow" style="--at: 1.5s" d="M94 55H222V103H94Z"/>
+    <path class="paper draw" style="--at: 0s; --dur: 0.48s" pathLength="1" d="M92 53H220V101H92Z"/>
+    <path class="rule draw" style="--at: 0.72s; --dur: 0.3s" pathLength="1" d="M93 71.5H219"/>
+    <path class="rule draw" style="--at: 1.02s; --dur: 0.3s" pathLength="1" d="M93 86.5H219"/>
+    <path class="ink rise" style="--at: 0.96s" d="M140.7 66.5v-8.7h3.5q1 0 1.7.3t1 1.1.4 1.5q0 .9-.4 1.6t-1 1q-.8.4-1.8.4h-2.2v-1.5h1.9q.6 0 .9-.2t.5-.5.2-.8-.2-.7q-.1-.4-.5-.5t-.9-.2h-1.2v7.2zm11.6-2.8v-3.8h1.8v6.6h-1.7v-1.2h-.1q-.2.6-.7.9t-1.3.4-1.2-.3-.7-.9-.3-1.3v-4.2h1.8v3.9q0 .6.3.9t.8.3.7-.1.4-.5q.2-.2.2-.7zm2.9 2.8v-6.6h1.7v1.2h.1q.2-.6.7-.9t1.1-.3 1.1.3.7.9h0q.2-.6.8-.9t1.2-.3q.9 0 1.5.5t.6 1.7v4.4h-1.8v-4q0-.6-.3-.9t-.8-.2-.7.3-.3.8v4h-1.8v-4.1q0-.5-.2-.7t-.8-.3q-.3 0-.5.1t-.4.4-.1.7v3.9zm12.4.1q-.6 0-1.1-.2t-.8-.6-.3-1.1.2-.9q.2-.4.6-.6t.8-.4.9-.1q.6-.1.9-.2t.5-.1.2-.3v-.1q0-.4-.3-.6t-.7-.2-.8.2-.4.5l-1.6-.1q.1-.6.5-1t.9-.7 1.4-.2q.6 0 1.1.1t.8.4.7.7q.2.4.2 1v4.4h-1.7v-.9h-.1q-.1.3-.4.5t-.6.4-.9.1zm.5-1.2q.4 0 .7-.2t.5-.4.2-.6v-.7q-.1 0-.2.1t-.4 0q-.2.1-.3.1t-.4.1-.5.1-.4.3-.1.4q0 .4.2.6t.7.2z"/>
+    <path class="ink rise" style="--at: 1.14s" d="M100.3 78.9v-.7h2.8v.7zm12.3 2.7q-.9 0-1.5-.5t-.5-1.4v-1.3q0-.9.5-1.4t1.5-.5q.8 0 1.4.4t.5 1.3h-.8q0-.5-.3-.8t-.8-.2-.9.3-.3.8v1.4q0 .6.3.9t.9.3.8-.3.3-.7h.8q0 .8-.5 1.2t-1.4.5zm6-.1q-.6 0-1-.4t-.4-1v-4.4h-1.7v-.8h2.5v5.2q0 .3.2.5t.4.2h1.6v.7zm4.3.1q-.8 0-1.2-.4t-.5-1.2q0-.4.2-.8t.6-.5.8-.2h1.6v-.4q0-.9-1.1-.9-.5 0-.7.1t-.4.5h-.8q.1-.6.6-1t1.3-.3 1.4.4.5 1.2v3.4h-.8v-.9h0q-.1.5-.5.7t-1 .3zm.2-.7q.6 0 .9-.3t.4-.8v-.7h-1.5q-.4 0-.6.3t-.3.6.3.7q.3.2.8.2zm4 .6l-.8-4.9h.7l.5 3.4q0 .2 0 .5t.1.4q0-.2 0-.4t.1-.5l.6-3.4h.8l.6 3.4q.1.2.1.5t0 .4q.1-.2.1-.4t0-.5l.6-3.4h.6l-.8 4.9h-.9l-.6-3.4q0-.3-.1-.6t0-.4q0 .2 0 .4t-.1.6l-.6 3.4zm6.8.1q-.8 0-1.3-.4t-.4-1.1h.8q0 .4.2.6t.7.2h.4q.4 0 .7-.2t.2-.6q0-.6-.5-.7l-1.4-.2q-.5-.1-.8-.4t-.3-.9.5-1.1q.4-.3 1.2-.3h.4q.7 0 1.2.3t.5 1h-.9q0-.3-.2-.5t-.6-.1h-.4q-.4 0-.6.2t-.3.5q0 .5.5.6l1.3.1q1.2.2 1.2 1.5 0 .7-.4 1.1t-1.3.4zm5.6-3.8q-.4 0-.6-.2t-.1-.5.1-.5q.2-.1.6-.1t.6.1.1.5-.1.5q-.2.2-.6.2zm0 3.8q-.4 0-.6-.2t-.1-.5.1-.5q.2-.1.6-.1t.6.1.1.5-.1.5q-.2.2-.6.2zm10.9 0q-.9 0-1.4-.5t-.6-1.4v-3q0-.9.6-1.4t1.4-.5 1.4.5.5 1.4h-.8q0-.5-.3-.8t-.8-.3-.9.3-.3.8v3q0 .6.3.9t.9.3.8-.3.3-.9h.8q0 .9-.5 1.4t-1.4.5zm6-.1q-.6 0-1-.4t-.4-1v-4.4h-1.7v-.8h2.5v5.2q0 .3.2.5t.4.2h1.6v.7zm4.3.1q-.8 0-1.2-.4t-.5-1.2q0-.4.2-.8t.6-.5.8-.2h1.6v-.4q0-.9-1.1-.9-.5 0-.7.1t-.4.5h-.8q.1-.6.6-1t1.3-.3 1.4.4.5 1.2v3.4h-.8v-.9h0q-.1.5-.5.7t-1 .3zm.2-.7q.6 0 .9-.3t.4-.8v-.7h-1.5q-.4 0-.6.3t-.3.6.3.7q.3.2.8.2zm4 .6l-.8-4.9h.7l.5 3.4q0 .2 0 .5t.1.4q0-.2 0-.4t.1-.5l.6-3.4h.8l.6 3.4q.1.2.1.5t0 .4q.1-.2.1-.4t0-.5l.6-3.4h.6l-.8 4.9h-.9l-.6-3.4q0-.3-.1-.6t0-.4q0 .2 0 .4t-.1.6l-.6 3.4zm11.5 1v-8.5h2.2v.8h-1.3v7h1.3v.7zm4.4-1v-.7h1.8v-5.2l-1.8 1.4v-1l1.5-1.1h1.1v5.9h1.5v.7zm7.3.1q-.6 0-1.1-.3t-.7-.6q-.3-.5-.3-1 0-.7.3-1.1t1-.6h0q-.5-.1-.8-.5t-.3-.9.2-.9.7-.6 1-.3 1 .3q.4.2.7.6t.2.9-.3.9-.8.5h0q.6.1 1 .6t.3 1.1-.3 1-.7.6-1.1.3zm0-3.9q.5 0 .8-.3t.3-.8-.3-.7-.8-.3-.8.3-.3.7q0 .5.3.8t.8.3zm0 3.2q.6 0 .9-.4t.4-.9-.4-.8q-.3-.4-.9-.4t-.9.4-.4.8q0 .6.4.9t.9.4zm4 1.6v-.7h1.4v-7h-1.4v-.8h2.3v8.5z"/>
+    <path class="ink rise" style="--at: 1.32s" d="M101.3 95.6v-1.7h-1.7v-.7h1.7v-1.8h.8v1.8h1.7v.7h-1.7v1.7zm9.3 2.5v-6.5h.8v.9h0q.1-.5.5-.8t.9-.2q.7 0 1.2.5t.4 1.3v1.4q0 .9-.4 1.4t-1.2.5q-.6 0-.9-.3t-.5-.7h0v1.1 1.4zm1.9-2.2q.5 0 .8-.3t.3-.9v-1.4q0-.6-.3-.9t-.8-.2-.8.3-.3.9v1.3q0 .6.3.9t.8.3zm5.4.7q-.9 0-1.4-.6t-.5-1.4v-1.1q0-1 .5-1.5t1.4-.5 1.4.5.5 1.5v1.1q0 .9-.5 1.4t-1.4.6zm0-.7q.5 0 .8-.3t.3-.9v-1.3q0-.6-.3-.9t-.8-.3-.8.3-.3.9v1.3q0 .6.3.9t.8.3zm5.4.7q-.9 0-1.4-.5t-.5-1.4v-3.1h.8v3.1q0 .5.3.9t.8.3.8-.3q.3-.4.3-.9v-3.1h.8v3.1q0 .9-.5 1.4t-1.4.5zm3.5-.1v-4.9h.8v.9h0q.1-.5.5-.8t.9-.2q.7 0 1.1.4t.5 1.3v3.3h-.8v-3.2q0-.6-.3-.9t-.8-.3-.8.4-.3.9v3.1zm7.4.1q-.9 0-1.5-.5t-.5-1.4v-1.3q0-.9.5-1.4t1.5-.5q.8 0 1.4.4t.5 1.3h-.8q0-.5-.3-.8t-.8-.2-.9.3-.3.8v1.4q0 .6.3.9t.9.3.8-.3.3-.7h.8q0 .8-.5 1.2t-1.4.5zm5.3 0q-.9 0-1.4-.5t-.5-1.5v-1.2q0-.9.5-1.4t1.4-.5q.6 0 1 .2t.7.7.2 1v.8h-3.1v.5q0 .5.4.9t.8.3.7-.2.4-.5h.8q-.1.7-.6 1t-1.3.4zm-1.2-3h2.4v-.2q0-.6-.3-1t-.9-.3-.9.3q-.3.4-.3 1zm8.3 4q-1.3-.3-2-1.2t-.7-2.3v-1.7q0-1.3.7-2.3t2-1.2v.8q-.6.2-1 .5t-.7 1q-.2.5-.2 1.2v1.7q0 .7.2 1.2t.7 1 1 .5zm2 0v-.8q.6-.1 1-.5t.7-1 .2-1.2v-1.7q0-.7-.2-1.2t-.7-1q-.4-.3-1-.5v-.8q1.3.3 2 1.2t.7 2.3v1.7q0 1.4-.7 2.3t-2 1.2z"/>
+    <path class="paper draw" style="--at: 0.18s; --dur: 0.18s" pathLength="1" d="M220 81L227 76.5L234 81L227 85.5Z"/>
 
     <g class="head">
-      <g class="far"><path class="paper draw" style="--at: .75s" pathLength="1" d="M236 61 L241 48 L246 61"/></g>
-      <path class="shadow" style="--at: 1.15s" d="M237 64 H271 V77 H282 L289 84 V95 H237 Z"/>
-      <path class="paper draw" style="--at: .55s" pathLength="1" d="M234 61 H268 V74 H279 L286 81 V92 H234 Z"/>
-      <g class="ear-wake"><g class="ear-flick">
-        <path class="paper draw" style="--at: .85s" pathLength="1" d="M243 61 L249 46 L255 61"/>
-        <path class="rule draw" style="--at: 1.2s; stroke-linejoin: round" pathLength="1" d="M246 59.8 L249 52.3 L252 59.8"/>
-      </g></g>
-      <path class="rule draw" style="--at: 1.1s" pathLength="1" d="M235 74.5 H267"/>
-      <path class="rise" style="--at: 1.15s" d="M280 75.5 V80 H284.5 Z" fill="#ede9fe" stroke="#d8b4fe" stroke-width="1.2" stroke-linejoin="round"/>
-      <g class="eye-open"><g class="eye">
-        <path d="M250.2 68 Q256.4 62.6 262.7 67.5 Q256.4 71.3 250.2 68 Z" fill="#fbbf24" stroke="#3b0764" stroke-width="1.1" stroke-linejoin="round"/>
-        <ellipse cx="257.4" cy="67.7" rx="1.05" ry="2.45" fill="#3b0764"/>
-      </g></g>
-      <path class="rise" style="--at: 1.25s" d="M282 82.6 H285.6 V86.2 Z" fill="#3b0764" stroke="#3b0764" stroke-width="1" stroke-linejoin="round"/>
-      <path class="line draw" style="--at: 1.3s; stroke-width: 1.1" pathLength="1" d="M288 85 L302 80.5"/>
-      <path class="line draw" style="--at: 1.35s; stroke-width: 1.1" pathLength="1" d="M288 88 L302 90.5"/>
+      <g class="far"><path class="line ear draw" style="--at: 0.9s; --dur: 0.2s" pathLength="1" d="M233.4 74L242 53L250.6 74"/></g>
+      <g class="wake"><g class="flick"><path class="line ear draw" style="--at: 0.9s; --dur: 0.2s" pathLength="1" d="M245 74L256 52L267 74"/></g></g>
+      <path class="shadow" style="--at: 1.5s" d="M236 83V72H272V89H279L284 94V103H236Z"/>
+      <path class="paper draw" style="--at: 0.3s; --dur: 0.36s" pathLength="1" d="M234 81V70H270V87H277L282 92V101H234Z"/>
+      <path class="rule draw" style="--at: 1.26s; --dur: 0.3s" pathLength="1" d="M235 86.5H269"/>
+      <path class="rule draw" style="--at: 1.38s; --dur: 0.18s" pathLength="1" d="M277.5 87V92.5H282"/>
+      <g class="fade" style="--at: 1.2s">
+        <path class="lid" d="M265.7 78.5Q259.4 82.3 253.2 79"/>
+        <g class="open"><g class="blink">
+          <path class="eye" d="M253.2 79Q259.4 73.6 265.7 78.5Q259.4 82.3 253.2 79Z"/>
+          <ellipse class="ink" cx="260.4" cy="78.5" rx="1.05" ry="2.45"/>
+        </g></g>
+        <path class="nose" d="M278.5 93.5H281.5V96.5Z"/>
+      </g>
+      <path class="line whisker draw" style="--at: 1.44s; --dur: 0.18s" pathLength="1" d="M284 95L295 90.5"/>
+      <path class="line whisker draw" style="--at: 1.44s; --dur: 0.18s" pathLength="1" d="M284 98L295 100.5"/>
     </g>
   </g>
 
   <g class="leg">
-    <path class="shadow" style="--at: 1.2s" d="M103 142 h14 v6 h-14 Z"/>
-    <path class="line draw" style="--at: 0.7s" pathLength="1" d="M110 118 L101 131 L106 140"/>
-    <path class="paper draw" style="--at: 0.6s" pathLength="1" d="M110 106 L114 112 L110 118 L106 112 Z"/>
-    <path class="paper draw" style="--at: 1s" pathLength="1" d="M101 140 H115 V146 H101 Z"/>
+    <path class="shadow" style="--at: 1.5s" d="M103 131H112V137H98V131Z"/>
+    <g class="stretch"><path class="line draw" style="--at: 0.54s; --dur: 0.18s" pathLength="1" d="M108 113L99 122L101 129"/></g>
+    <g class="breathe"><path class="paper draw" style="--at: 0.36s; --dur: 0.18s" pathLength="1" d="M108 101L112 107L108 113L104 107Z"/></g>
+    <path class="paper draw" style="--at: 0.78s; --dur: 0.2s" pathLength="1" d="M101 129H110V135H96V129Z"/>
   </g>
   <g class="leg">
-    <path class="shadow" style="--at: 1.2s" d="M212 142 h14 v6 h-14 Z"/>
-    <path class="line draw" style="--at: 0.8s" pathLength="1" d="M208 118 L213 130 L215 140"/>
-    <path class="paper draw" style="--at: 0.65s" pathLength="1" d="M208 106 L212 112 L208 118 L204 112 Z"/>
-    <path class="paper draw" style="--at: 1s" pathLength="1" d="M210 140 H224 V146 H210 Z"/>
+    <path class="shadow" style="--at: 1.5s" d="M221 131H230V137H216V131Z"/>
+    <g class="stretch"><path class="line draw" style="--at: 0.42s; --dur: 0.18s" pathLength="1" d="M208 113L214 121L219 129"/></g>
+    <g class="breathe"><path class="paper draw" style="--at: 0.24s; --dur: 0.18s" pathLength="1" d="M208 101L212 107L208 113L204 107Z"/></g>
+    <path class="paper draw" style="--at: 0.6s; --dur: 0.2s" pathLength="1" d="M219 129H228V135H214V129Z"/>
   </g>
 </svg>
