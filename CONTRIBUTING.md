@@ -27,7 +27,7 @@ tests/       golden, invariant, drill, cycle, edge-budget, rule, diff and action
 verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
 action/      the GitHub Action's scripts: install.sh downloads a release, report.sh runs `diff`, annotates and comments
 action.yml   the GitHub Action
-assets/      the icon and the README screenshots
+assets/      the logo and the README screenshots
 ```
 
 ## Building and testing
