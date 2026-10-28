@@ -1,4 +1,4 @@
-<img src="assets/logo.svg" width="320" height="180" alt="">
+<p align="center"><img src="assets/logo.svg" width="320" height="180" alt=""></p>
 
 # puml
 
