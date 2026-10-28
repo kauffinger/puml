@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "puml-extract"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "mago-allocator",
  "mago-codex",

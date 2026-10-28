@@ -325,7 +325,7 @@ pub fn wire(project: &Project, classes: &[ClassNode], edges: &[RawEdge], files: 
                 let app_files: Vec<RouteItem> = scope
                     .items
                     .into_iter()
-                    .filter(|item| matches!(item, RouteItem::Include { path, .. } if !path.starts_with("vendor/") && project.root.join(path).is_file()))
+                    .filter(|item| matches!(item, RouteItem::Include { path, .. } if !path.starts_with("vendor/") && project.is_file(path)))
                     .collect();
 
                 collector.collect(&app_files, &[], &relative, provider, 0);
@@ -364,7 +364,7 @@ pub fn wire(project: &Project, classes: &[ClassNode], edges: &[RawEdge], files: 
         }
     }
 
-    console.retain(|path| project.root.join(path).is_file());
+    console.retain(|path| project.is_file(path));
 
     let runs_at_boot = |file: &str, registered: &Registered| -> bool {
         match &registered.class {
@@ -418,9 +418,9 @@ pub fn wire(project: &Project, classes: &[ClassNode], edges: &[RawEdge], files: 
 /// The service providers Laravel registers: those bootstrap/providers.php, config/app.php and
 /// `withProviders()` list, and those a registered provider registers with `$this->app->register()`.
 fn registered_providers(project: &Project, files: &[(String, &WiringFacts)], bootstrap: &Bootstrap) -> HashSet<String> {
-    let mut providers: HashSet<String> = listed_classes(&project.root, "bootstrap/providers.php", None)
+    let mut providers: HashSet<String> = listed_classes(project, "bootstrap/providers.php", None)
         .into_iter()
-        .chain(listed_classes(&project.root, "config/app.php", Some("providers")))
+        .chain(listed_classes(project, "config/app.php", Some("providers")))
         .chain(bootstrap.providers.iter().cloned())
         .map(|class| class.to_ascii_lowercase())
         .collect();
@@ -475,7 +475,7 @@ impl RouteCollector<'_> {
                     }
                 }
                 RouteItem::Include { groups, path, line } => {
-                    let items = self.route_files.get(path).cloned().or_else(|| read_route_file(&self.project.root, path));
+                    let items = self.route_files.get(path).cloned().or_else(|| read_route_file(self.project, path));
 
                     match items {
                         Some(items) if depth < 16 => {

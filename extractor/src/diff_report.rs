@@ -7,6 +7,8 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use crate::diff::Diff;
+use crate::diff_laravel;
+use crate::diff_laravel::Style;
 use crate::diff_markdown;
 use crate::diff_markdown::Links;
 use crate::diff::Modified;
@@ -74,6 +76,7 @@ impl<'a> Writer<'a> {
         self.modules();
         self.metrics();
         self.outliers();
+        self.laravel();
         self.other_edges();
         self.other_files();
     }
@@ -91,7 +94,7 @@ impl<'a> Writer<'a> {
         );
 
         let counts = format!(
-            "classes: {} added, {} modified, {} renamed, {} removed; class edges: {} added, {} removed; {} changed {} classes, {} other{} changed",
+"classes: {} added, {} modified, {} renamed, {} removed; class edges: {} added, {} removed; {} changed {} in the graph, {} other{} changed",
             classes.added.len(),
             classes.modified.len(),
             classes.renamed.len(),
@@ -99,7 +102,7 @@ impl<'a> Writer<'a> {
             diff.edges.added.len(),
             diff.edges.removed.len(),
             diff.files.len(),
-            if diff.files.len() == 1 { "file declares" } else { "files declare" },
+            if diff.files.len() == 1 { "file" } else { "files" },
             diff.other_files.len(),
             if diff.other_files.len() == 1 { " file" } else { " files" },
         );
@@ -438,6 +441,7 @@ impl<'a> Writer<'a> {
 
     /// Edge changes that do not leave a class in the reading order, such as an edge that now ends at a
     /// class declared somewhere else. Edges of removed classes are left out: they went with the class.
+    /// Wiring edges are listed with the routes and wiring they come from.
     fn other_edges(&mut self) {
         let listed: BTreeSet<&str> = self.diff.reading_order.iter().flatten().map(String::as_str).collect();
         let gone: BTreeSet<&str> = self
@@ -456,7 +460,7 @@ impl<'a> Writer<'a> {
             .iter()
             .map(|edge| ('+', edge))
             .chain(self.diff.edges.removed.iter().map(|edge| ('-', edge)))
-            .filter(|(_, edge)| !listed.contains(edge.from.as_str()) && !gone.contains(edge.from.as_str()))
+            .filter(|(_, edge)| !edge.kind.is_wiring() && !listed.contains(edge.from.as_str()) && !gone.contains(edge.from.as_str()))
             .collect();
 
         if edges.is_empty() {
@@ -471,6 +475,22 @@ impl<'a> Writer<'a> {
         }
     }
 
+    fn laravel(&mut self) {
+        for section in diff_laravel::sections(&self.diff.laravel, Style::Text) {
+            self.heading(section.title, &section.summary());
+
+            for fact in &section.lines {
+                let change = match fact.change {
+                    "added" => "new",
+                    "removed" => "gone",
+                    change => change,
+                };
+                let line = format!("{change}  {}  {}:{}", fact.text, fact.file, fact.line);
+                self.item(0, line);
+            }
+        }
+    }
+
     fn other_files(&mut self) {
         let files = &self.diff.other_files;
 
@@ -478,7 +498,7 @@ impl<'a> Writer<'a> {
             return;
         }
 
-        self.heading("Changed files the graph does not cover", "only classes under the PSR-4 roots are in the graph");
+        self.heading("Changed files the graph does not cover", "it reads the classes under the PSR-4 roots and the route files Laravel loads");
 
         for file in files {
             let from = file.from.as_ref().map(|from| format!(" from {}", from)).unwrap_or_default();

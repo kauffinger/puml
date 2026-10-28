@@ -16,10 +16,13 @@ extractor/   puml-extract (Rust, links mago 1.54.0)
   src/diff.rs       the base graph, and what changed between it and the head
   src/diff_report.rs  the text and JSON of `diff`
   src/diff_markdown.rs  the Markdown of `diff`, for the pull request comment
+  src/diff_laravel.rs   the routes and wiring of `diff`, in words, for the text and the Markdown
 viewer/      index.html, app.js (rendering and the side panel), model.js (levels, aggregation, budgets, cycles in a view)
 fixtures/    shop: a small fixture app with a hand-written expected graph
              blog: a fixture with seeded rule violations and a module cycle, with hand-written expected/violations.json
              blog-pr: a pull request on blog (head/ laid over it, deleted lists removed files), with hand-written expected/diff.json
+             wiring: routes and Laravel wiring of every kind, with hand-written expected/laravel.json
+             wiring-pr: a pull request on wiring that adds, changes and removes routes and wiring, with hand-written expected/diff.json
 tests/       golden, invariant, drill, cycle, edge-budget, rule, diff and action tests (node --test)
 verify/      PHP judges that compare a graph with what PHP itself reports, and a deptrac comparison
 action/      the GitHub Action's scripts: install.sh downloads a release, report.sh runs `diff`, annotates and comments
@@ -41,8 +44,9 @@ with `include_str!`, so rebuild after any change in `viewer/` and regenerate the
 While working on the viewer, you can also serve the repository and open
 `viewer/index.html?graph=../out/app.json`, which loads the modules directly.
 
-The golden files in `fixtures/shop/expected/`, `fixtures/blog/expected/violations.json` and
-`fixtures/blog-pr/expected/diff.json` are written by hand. When one fails, decide by hand which side is wrong before you touch it.
+The golden files in `fixtures/shop/expected/`, `fixtures/blog/expected/violations.json`,
+`fixtures/blog-pr/expected/diff.json`, `fixtures/wiring/expected/laravel.json` and
+`fixtures/wiring-pr/expected/diff.json` are written by hand. When one fails, decide by hand which side is wrong before you touch it.
 
 ## Why the crates and not the `mago` CLI
 
@@ -138,11 +142,20 @@ six violations and one cycle.
   the index after `git add --all`, so untracked files and renames count and the user's index is never
   touched.
 - **The base graph** reuses the head's facts for unchanged files, collects changed files from
-  `git show <base>:<path>`, and assembles and judges the result like any graph. `vendor/` is read from
-  disk for both sides.
+  `git show <base>:<path>`, and assembles and judges the result like any graph. The files Laravel reads
+  that are not classes, such as `bootstrap/providers.php`, `config/app.php` and route files, are read
+  through `Project::read` and `Project::is_file`, which take the changed ones from the base as well.
+  `vendor/` is read from disk for both sides.
 - **An edge** is the same edge on both sides when its from, to, kind and label match. Static and
-  signature edges ignore the label, which names the method. Evidence is never compared, so moving code
-  inside a file changes nothing.
+  signature edges ignore the label, which names the method, and wiring edges ignore theirs, which repeats
+  their fact. Evidence is never compared, so moving code inside a file changes nothing.
+- **Routes and wiring** are compared fact by fact, without the file and line they are written on, the
+  file that registers them, or how (`Fact::behavior`): a route moved to another file, or a listener that is
+  now discovered rather than listed, has not changed. An added and a removed fact of the same registration
+  are one changed fact (`Fact::same_registration`): a route with the same domain, methods and URI, an
+  observer of the same model, the policy of a model, the binding of a key, the class of a middleware alias.
+  Equal facts are matched where they are written first, so of two equal registrations the new one is
+  reported.
 - **A rename** is a file git reports as renamed that holds exactly one removed and one added class.
 - **A removed class still in use** is a class declared at the base that the head only references: it is
   external but under an app root.
@@ -159,7 +172,8 @@ six violations and one cycle.
 
 `tests/diff.test.js` builds a git repository from `fixtures/blog` and `fixtures/blog-pr` and checks the
 diff against `expected/diff.json` before and after the pull request is committed, and checks the edge
-changes against fresh extractions of both sides.
+changes against fresh extractions of both sides. It does the same with `fixtures/wiring` and
+`fixtures/wiring-pr` for the routes and wiring, the comment and the text.
 
 ## Graph JSON (version 3)
 
@@ -255,8 +269,8 @@ To release, bump `version` in `extractor/Cargo.toml` and the `version` input's d
 commit, and push a matching tag:
 
 ```sh
-git tag v0.6.0
-git push origin v0.6.0
+git tag v0.6.1
+git push origin v0.6.1
 ```
 
 `.github/workflows/release.yml` fails if the tag differs from the crate version or from the action's

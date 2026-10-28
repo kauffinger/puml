@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
+import { WIRING_KINDS } from '../viewer/model.js';
 import { extract, extractor, git, readJson, repositoryWithPullRequest } from './support.js';
 
 const expected = readJson('fixtures/blog-pr/expected/diff.json');
@@ -68,7 +69,8 @@ function summarize(diff, worsens) {
     };
 }
 
-const key = (edge) => [edge.from, edge.to, edge.kind, ['static', 'signature'].includes(edge.kind) ? '' : (edge.label ?? '')].join('|');
+const key = (edge) =>
+    [edge.from, edge.to, edge.kind, ['static', 'signature', ...WIRING_KINDS].includes(edge.kind) ? '' : (edge.label ?? '')].join('|');
 
 describe('a pull request on the blog', () => {
     let dir;
@@ -218,5 +220,111 @@ describe('the pull request comment', () => {
         comment = markdown();
         assert.match(comment, /### The module edges it changes/);
         assert.doesNotMatch(comment, /The classes it changes/);
+    });
+});
+
+describe('a pull request on the routes and wiring', () => {
+    const expectedWiring = readJson('fixtures/wiring-pr/expected/diff.json');
+    let dir;
+
+    before(() => {
+        dir = repositoryWithPullRequest('', 'wiring');
+        git(dir, 'checkout', '--quiet', '-b', 'pull-request');
+        git(dir, 'add', '--all');
+        git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Comment on posts');
+    });
+
+    after(() => rmSync(dir, { recursive: true, force: true }));
+
+    test('adds, changes and removes exactly the facts Laravel registers differently', () => {
+        const result = diffJson(dir, 'main');
+
+        assert.deepEqual({ files: result.files.map(file), other_files: result.other_files.map(file), laravel: result.laravel }, expectedWiring);
+    });
+
+    test('adds and removes exactly the edges between a fresh extraction of each side', () => {
+        const head = extract(dir);
+        git(dir, 'checkout', '--quiet', 'main');
+        const base = extract(dir);
+        git(dir, 'checkout', '--quiet', 'pull-request');
+
+        const [before, now] = [new Set(base.edges.map(key)), new Set(head.edges.map(key))];
+        const result = diffJson(dir, 'main');
+
+        assert.deepEqual([...new Set(result.edges.added.map(key))].sort(), [...now].filter((edge) => !before.has(edge)).sort());
+        assert.deepEqual([...new Set(result.edges.removed.map(key))].sort(), [...before].filter((edge) => !now.has(edge)).sort());
+    });
+
+    test('has no wiring to report for a branch compared with itself', () => {
+        const { laravel } = diffJson(dir, 'HEAD');
+
+        for (const [kind, changes] of Object.entries(laravel)) {
+            assert.deepEqual(changes, { added: [], removed: [], changed: [] }, kind);
+        }
+    });
+
+    test('lists the routes and wiring in the comment', () => {
+        const comment = diff(dir, 'main', '--format', 'markdown').stdout;
+
+        for (const line of [
+            '<details><summary><b>Classes</b>: 2 added, 2 modified · <b>Routes and wiring</b>: 3 routes, 2 listeners, 1 observer, 1 binding, 1 scheduled task changed · <b>used by</b> 1 directly, 3 in all</summary>',
+            '<details><summary><b>Routes and wiring</b>: 3 routes: 1 added, 1 changed, 1 removed · 2 listeners: 2 added · 1 observer: 1 changed · 1 binding: 1 changed · 1 scheduled task: 1 removed</summary>',
+            '- Added `POST posts/{post}/comments` → `CommentController@store`, named `comments.store`, middleware `web`, `admin` · `routes/web.php:16`',
+            '- Changed `POST posts`: middleware `web`, `admin` → `web` · `routes/web.php:12`',
+            '- Removed `GET|HEAD /` → `view:welcome`, named `home`, middleware `web` · `routes/web.php:6`',
+            '- Added `PostPublished` → `LogPublication@handle` · `app/Listeners/LogPublication.php:9`',
+            '- Added `PostPublished` → `LogPublication@handle` · `app/Providers/AppServiceProvider.php:23`',
+            '- Changed `Post` observed by `PostObserver`: on created, deleted → on created, updated, deleted · `app/Models/Post.php:9`',
+            '- Changed `Feed`: bound to `RssFeed` as singleton → `RssFeed` as bind · `app/Providers/AppServiceProvider.php:17`',
+            '- Removed job `SendDigest` · `routes/console.php:8`',
+        ]) {
+            assert.ok(comment.includes(line), `${line}\n\n${comment}`);
+        }
+
+        assert.doesNotMatch(comment, /not in the graph/);
+        assert.doesNotMatch(comment, /class edge `routes\//);
+        assert.doesNotMatch(comment, /\(global\)/);
+        assert.match(comment, /subgraph n\d+\["routes"\]\n {4}c\d+\["console\.php"\]\n {4}c\d+\["web\.php"\]\n {2}end/);
+
+        const node = comment.match(/(c\d+)\["web\.php"\]/)[1];
+        assert.match(comment, new RegExp(`^  class [c\\d,]*\\b${node}\\b[c\\d,]* modified$`, 'm'));
+    });
+
+    test('lists the routes and wiring in the text report', () => {
+        const text = diff(dir, 'main').stdout;
+
+        assert.match(text, /^ROUTES {2}\(3 routes: 1 added, 1 changed, 1 removed\)$/m);
+        assert.ok(
+            text.includes(
+                '  new  POST posts/{post}/comments -> App\\Http\\Controllers\\CommentController@store, named comments.store, middleware web, admin  routes/web.php:16',
+            ),
+            text,
+        );
+        assert.ok(text.includes('  changed  App\\Contracts\\Feed: bound to App\\Services\\RssFeed as singleton -> App\\Services\\RssFeed as bind'), text);
+        assert.doesNotMatch(text, /CHANGED FILES THE GRAPH DOES NOT COVER/);
+    });
+
+    test('reads what the base registers from the base, not from the working tree', () => {
+        git(dir, 'checkout', '--quiet', '-b', 'unregister', 'main');
+        writeFileSync(join(dir, 'bootstrap/providers.php'), '<?php\n\nreturn [];\n');
+        git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '--all', '-m', 'Unregister the app provider');
+
+        const { laravel, files } = diffJson(dir, 'main');
+
+        assert.deepEqual(files.map(file), ['modified bootstrap/providers.php']);
+        assert.deepEqual(laravel.listeners.removed.map((fact) => fact.listener), ['App\\Listeners\\WarmCache@handle']);
+        assert.deepEqual(laravel.bindings.removed.map((fact) => fact.key), ['App\\Contracts\\Feed']);
+    });
+
+    test('names the route lines that still use a removed controller', () => {
+        git(dir, 'checkout', '--quiet', '-b', 'remove-controller', 'main');
+        git(dir, 'rm', '--quiet', 'app/Http/Controllers/PostController.php');
+        git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Remove the post controller');
+
+        const comment = diff(dir, 'main', '--format', 'markdown').stdout;
+
+        assert.ok(comment.includes('🔴 **Removed but still used** `PostController` by `routes/api.php:6`, `routes/web.php:'), comment);
+        assert.doesNotMatch(comment, /`routes\/web\.php` · /);
+        assert.equal(diff(dir, 'main', '--strict').status, 1);
     });
 });

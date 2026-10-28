@@ -1044,13 +1044,10 @@ mod tests {
 
     /// The routes a route file registers, as `METHODS uri name action`, and its notes, as `line: detail`.
     fn read(source: &str) -> (Vec<String>, Vec<String>) {
-        let dir = std::env::temp_dir().join(format!("puml-routes-{}-{}", std::process::id(), source.len()));
-        std::fs::create_dir_all(dir.join("routes")).unwrap();
-        std::fs::write(dir.join("routes/web.php"), format!("<?php\n\nuse Illuminate\\Support\\Facades\\Route;\nuse App\\Http\\Controllers\\PhotoController;\n\n{source}")).unwrap();
+        let contents = format!("<?php\n\nuse Illuminate\\Support\\Facades\\Route;\nuse App\\Http\\Controllers\\PhotoController;\n\n{source}");
 
         let verbs: Vec<String> = VERBS.map(str::to_string).to_vec();
-        let items = crate::wiring::read_route_file(&dir, "routes/web.php").unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
+        let items = crate::wiring::route_items("routes/web.php", contents.into_bytes()).unwrap();
 
         let mut routes = Vec::new();
         let mut notes = Vec::new();

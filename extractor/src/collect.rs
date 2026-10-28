@@ -545,10 +545,11 @@ fn describe_class(
         .map(|(_, function)| function.as_ref())
         .collect();
 
-    methods.sort_by_key(|method| method.span.start.offset);
+    methods.sort_by_key(|method| (method.span.start.offset, method.original_name.to_ascii_lowercase()));
 
     for method in methods {
         let method_metadata = method.method_metadata.as_ref().expect("filtered on method metadata");
+        let built_in = (method.span == metadata.span).then(|| enum_signature(&method.original_name.to_string())).flatten();
         let parameter_kind = if method_metadata.is_constructor { EdgeKind::Injects } else { EdgeKind::Signature };
         let member = (!method_metadata.is_constructor).then(|| format!("{}()", method.original_name));
 
@@ -573,7 +574,10 @@ fn describe_class(
 
                 ParameterNode {
                     name: parameter.name.0.to_string().trim_start_matches('$').to_string(),
-                    r#type: type_metadata.map(written),
+                    r#type: match built_in {
+                        Some((parameter, _)) => parameter.map(str::to_string),
+                        None => type_metadata.map(written),
+                    },
                 }
             })
             .collect();
@@ -592,10 +596,24 @@ fn describe_class(
             r#static: method_metadata.is_static,
             r#abstract: method_metadata.is_abstract,
             params,
-            returns: returns.map(written),
+            returns: match built_in {
+                Some((_, returns)) => Some(returns.to_string()),
+                None => returns.map(written),
+            },
             line: file.line_number(method.span.start.offset) + 1,
             first_parameter,
         });
+    }
+}
+
+/// The parameter and return types PHP declares for the methods every enum has, which mago adds at the
+/// enum's own place.
+fn enum_signature(method: &str) -> Option<(Option<&'static str>, &'static str)> {
+    match method {
+        "cases" => Some((None, "array")),
+        "from" => Some((Some("string|int"), "static")),
+        "tryFrom" => Some((Some("string|int"), "?static")),
+        _ => None,
     }
 }
 

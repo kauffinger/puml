@@ -1,6 +1,7 @@
 mod assemble;
 mod collect;
 mod diff;
+mod diff_laravel;
 mod diff_markdown;
 mod diff_report;
 mod git;
@@ -251,7 +252,7 @@ fn extract_both(project_dir: &Path, changes: &Changes, include_dev: bool) -> Res
     let head_project = Project::load(project_dir, include_dev)?;
     let root = head_project.root.clone();
 
-    let base_project = match changes.files.iter().find(|file| file.path == "composer.json") {
+    let mut base_project = match changes.files.iter().find(|file| file.path == "composer.json") {
         Some(file) if file.status != FileStatus::Modified => {
             return Err("composer.json was added, deleted or renamed, so there is no base project to compare with".to_string());
         }
@@ -263,6 +264,7 @@ fn extract_both(project_dir: &Path, changes: &Changes, include_dev: bool) -> Res
         }
         None => Project::load(project_dir, include_dev)?,
     };
+    base_project.base = Some(changes.at_base(project_dir));
 
     let head_facts = collect_files(&head_project, head_project.php_files(), &HashMap::new());
     let head = assemble::assemble(&head_project, head_facts.clone());

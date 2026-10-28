@@ -2,10 +2,12 @@
 //! head: classes and their public members, class edges, the module edges they add up to, and the verdict.
 //! On top of that come the two things a reviewer cannot read off a text diff: the order in which to
 //! read the changed classes, and the classes outside the pull request that depend on what it changes.
+//! Last come the routes and the rest of what Laravel wires up, compared fact by fact.
 //!
 //! Class edges are matched by source, target, kind and label, except that static and signature edges
-//! are matched without their label, which only lists the members involved. Evidence lines are never
-//! compared: an edge that moved down because lines were inserted above it has not changed.
+//! are matched without their label, which only lists the members involved, and wiring edges without
+//! theirs, which repeats the route, events or lifetime that the routes and wiring facts compare. Evidence
+//! lines are never compared: an edge that moved down because lines were inserted above it has not changed.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -17,12 +19,20 @@ use serde::Serialize;
 
 use crate::git::ChangedFile;
 use crate::git::Changes;
+use crate::graph::BindingFact;
 use crate::graph::ClassNode;
 use crate::graph::Edge;
 use crate::graph::EdgeKind;
 use crate::graph::Graph;
+use crate::graph::Laravel;
+use crate::graph::ListenerFact;
 use crate::graph::Method;
+use crate::graph::MiddlewareFact;
+use crate::graph::ObserverFact;
+use crate::graph::PolicyFact;
 use crate::graph::Property;
+use crate::graph::RouteFact;
+use crate::graph::ScheduleFact;
 use crate::verdict::ClassFanOut;
 use crate::verdict::Cost;
 use crate::verdict::ModuleEdge;
@@ -30,7 +40,10 @@ use crate::verdict::is_vendor;
 use crate::verdict::module_of;
 use crate::verdict::strongly_connected;
 
-pub const DIFF_FORMAT_VERSION: u32 = 1;
+pub const DIFF_FORMAT_VERSION: u32 = 2;
+
+/// The files the graph reads the registered service providers from.
+const PROVIDER_LISTS: [&str; 2] = ["bootstrap/providers.php", "config/app.php"];
 
 #[derive(Debug, Serialize)]
 pub struct Diff {
@@ -39,9 +52,10 @@ pub struct Diff {
     pub generator: String,
     pub base: Revision,
     pub head: Revision,
-    /// Changed files that declare a class at the base or at the head.
+    /// Changed files the graph reads at the base or at the head: those that declare a class, the route
+    /// files and bootstrap/app.php, and the lists of service providers.
     pub files: Vec<ChangedFile>,
-    /// Every other changed file in the project directory: routes, config, views, migrations, ...
+    /// Every other changed file in the project directory: config, views, migrations, ...
     pub other_files: Vec<ChangedFile>,
     pub classes: ClassChanges,
     pub edges: EdgeChanges,
@@ -57,6 +71,7 @@ pub struct Diff {
     /// The changed and added classes, each after the ones it depends on. Classes that depend on each
     /// other share a group.
     pub reading_order: Vec<Vec<String>>,
+    pub laravel: LaravelChanges,
     pub notes: Vec<String>,
 }
 
@@ -196,6 +211,148 @@ pub struct Impact {
     pub reach: BTreeMap<String, usize>,
 }
 
+/// What the pull request changes in what Laravel wires up. Facts are compared as Laravel acts on them:
+/// a route that moved to another line or another file, or a listener that is now discovered rather than
+/// listed, has not changed.
+#[derive(Debug, Serialize)]
+pub struct LaravelChanges {
+    pub routes: FactChanges<RouteFact>,
+    pub listeners: FactChanges<ListenerFact>,
+    pub observers: FactChanges<ObserverFact>,
+    pub policies: FactChanges<PolicyFact>,
+    pub bindings: FactChanges<BindingFact>,
+    pub schedule: FactChanges<ScheduleFact>,
+    pub middleware: FactChanges<MiddlewareFact>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FactChanges<T> {
+    /// As at the head.
+    pub added: Vec<T>,
+    /// As at the base.
+    pub removed: Vec<T>,
+    /// The same registration with something else changed: a route with the same methods and URI, an
+    /// observer of the same model, the policy of the same model, the binding of the same key, the class
+    /// of the same middleware alias.
+    pub changed: Vec<FactChange<T>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FactChange<T> {
+    pub before: T,
+    pub after: T,
+}
+
+pub trait Fact: Clone + Ord {
+    /// The fact without the file and line it is written on, the file that registers it, or how.
+    fn behavior(&self) -> Self;
+
+    fn same_registration(&self, other: &Self) -> bool;
+
+    /// Where the fact is written.
+    fn place(&self) -> (&str, u32);
+}
+
+impl Fact for RouteFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        RouteFact { from: String::new(), file: String::new(), line: 0, ..self.clone() }
+    }
+
+    /// Laravel's route collection tells routes apart by domain, methods and URI.
+    fn same_registration(&self, other: &Self) -> bool {
+        (&self.domain, &self.methods, &self.uri) == (&other.domain, &other.methods, &other.uri)
+    }
+}
+
+impl Fact for ListenerFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        ListenerFact { how: "", file: String::new(), line: 0, ..self.clone() }
+    }
+
+    fn same_registration(&self, other: &Self) -> bool {
+        (&self.event, &self.listener) == (&other.event, &other.listener)
+    }
+}
+
+impl Fact for ObserverFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        ObserverFact { how: "", file: String::new(), line: 0, ..self.clone() }
+    }
+
+    fn same_registration(&self, other: &Self) -> bool {
+        (&self.model, &self.observer) == (&other.model, &other.observer)
+    }
+}
+
+impl Fact for PolicyFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        PolicyFact { how: "", file: String::new(), line: 0, ..self.clone() }
+    }
+
+    fn same_registration(&self, other: &Self) -> bool {
+        self.model == other.model
+    }
+}
+
+impl Fact for BindingFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        BindingFact { file: String::new(), line: 0, ..self.clone() }
+    }
+
+    fn same_registration(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Fact for ScheduleFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        ScheduleFact { from: String::new(), file: String::new(), line: 0, ..self.clone() }
+    }
+
+    fn same_registration(&self, other: &Self) -> bool {
+        (self.task, &self.target) == (other.task, &other.target)
+    }
+}
+
+impl Fact for MiddlewareFact {
+    fn place(&self) -> (&str, u32) {
+        (&self.file, self.line)
+    }
+
+    fn behavior(&self) -> Self {
+        MiddlewareFact { from: String::new(), file: String::new(), line: 0, ..self.clone() }
+    }
+
+    /// An alias names one class; a group or the global stack holds many.
+    fn same_registration(&self, other: &Self) -> bool {
+        self.slot == other.slot && (self.slot.starts_with("alias:") || self.class == other.class)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ClassImpact {
     pub class: String,
@@ -208,6 +365,7 @@ type EdgeKey<'a> = (&'a str, &'a str, EdgeKind, Option<&'a str>);
 fn key(edge: &Edge) -> EdgeKey<'_> {
     let label = match edge.kind {
         EdgeKind::Static | EdgeKind::Signature => None,
+        kind if kind.is_wiring() => None,
         _ => edge.label.as_deref(),
     };
 
@@ -243,16 +401,19 @@ impl Diff {
         let before = Side::new(base);
         let after = Side::new(head);
 
-        let declaring: HashSet<&str> = before
-            .declared_classes()
-            .chain(after.declared_classes())
+        let read: HashSet<&str> = base
+            .classes
+            .iter()
+            .chain(&head.classes)
+            .filter(|class| is_declared_class(class) || class.kind == "file")
             .filter_map(|class| class.file.as_deref())
+            .chain(PROVIDER_LISTS)
             .collect();
         let (files, other_files): (Vec<ChangedFile>, Vec<ChangedFile>) = changes
             .files
             .iter()
             .cloned()
-            .partition(|file| [file.base_path(), file.head_path()].into_iter().flatten().any(|path| declaring.contains(path)));
+            .partition(|file| [file.base_path(), file.head_path()].into_iter().flatten().any(|path| read.contains(path)));
 
         let changed_at_base: HashSet<&str> = files.iter().filter_map(ChangedFile::base_path).collect();
         let changed_at_head: HashSet<&str> = files.iter().filter_map(ChangedFile::head_path).collect();
@@ -279,6 +440,7 @@ impl Diff {
             dangling: dangling(&before, &after),
             impact: impact(&after, &classes, &in_pull_request),
             reading_order: reading_order(&after, &in_pull_request),
+            laravel: laravel_changes(&base.laravel, &head.laravel),
             notes: notes(&other_files),
             classes,
             files,
@@ -704,6 +866,66 @@ fn reading_order(after: &Side<'_>, in_pull_request: &HashSet<&str>) -> Vec<Vec<S
     order
 }
 
+fn laravel_changes(base: &Laravel, head: &Laravel) -> LaravelChanges {
+    LaravelChanges {
+        routes: fact_changes(&base.routes, &head.routes),
+        listeners: fact_changes(&base.listeners, &head.listeners),
+        observers: fact_changes(&base.observers, &head.observers),
+        policies: fact_changes(&base.policies, &head.policies),
+        bindings: fact_changes(&base.bindings, &head.bindings),
+        schedule: fact_changes(&base.schedule, &head.schedule),
+        middleware: fact_changes(&base.middleware, &head.middleware),
+    }
+}
+
+fn fact_changes<T: Fact>(base: &[T], head: &[T]) -> FactChanges<T> {
+    let mut removed = only_in(base, head);
+    let mut added = only_in(head, base);
+    let mut changed = Vec::new();
+
+    added.retain(|after| match removed.iter().position(|before| before.same_registration(after)) {
+        Some(index) => {
+            changed.push(FactChange { before: removed.remove(index), after: after.clone() });
+            false
+        }
+        None => true,
+    });
+
+    FactChanges { added, removed, changed }
+}
+
+/// The facts of one side the other side lacks, as many times as it lacks them. Facts are matched where
+/// they are written first, so that of two equal registrations the one reported is the one that is new.
+fn only_in<T: Fact>(one: &[T], other: &[T]) -> Vec<T> {
+    let (one, other) = unmatched(one.iter().collect(), other.iter().collect(), T::clone);
+    let (one, _) = unmatched(one, other, T::behavior);
+
+    one.into_iter().cloned().collect()
+}
+
+fn unmatched<'a, T, K: Ord>(one: Vec<&'a T>, other: Vec<&'a T>, key: impl Fn(&T) -> K) -> (Vec<&'a T>, Vec<&'a T>) {
+    let left = |side: &[&'a T], against: &[&'a T]| -> Vec<&'a T> {
+        let mut counts: BTreeMap<K, usize> = BTreeMap::new();
+
+        for fact in against {
+            *counts.entry(key(fact)).or_default() += 1;
+        }
+
+        side.iter()
+            .copied()
+            .filter(|fact| match counts.get_mut(&key(fact)) {
+                Some(count) if *count > 0 => {
+                    *count -= 1;
+                    false
+                }
+                _ => true,
+            })
+            .collect()
+    };
+
+    (left(&one, &other), left(&other, &one))
+}
+
 fn notes(other_files: &[ChangedFile]) -> Vec<String> {
     let mut notes = Vec::new();
 
@@ -1005,5 +1227,64 @@ mod tests {
             ]
         );
         assert_eq!(diff.impact.reach, BTreeMap::from([("App\\Console".to_string(), 1), ("App\\Http".to_string(), 2)]));
+    }
+
+    fn route(uri: &str, middleware: &[&str], file: &str, line: u32) -> RouteFact {
+        RouteFact {
+            from: file.to_string(),
+            methods: vec!["GET".to_string(), "HEAD".to_string()],
+            uri: uri.to_string(),
+            domain: None,
+            name: None,
+            action: "closure".to_string(),
+            target: None,
+            middleware: middleware.iter().map(|name| name.to_string()).collect(),
+            excluded_middleware: Vec::new(),
+            file: file.to_string(),
+            line,
+        }
+    }
+
+    #[test]
+    fn a_route_that_only_moved_has_not_changed_and_one_with_other_middleware_has() {
+        let base = vec![
+            route("posts", &["web"], "routes/web.php", 3),
+            route("feed", &["web"], "routes/web.php", 4),
+            route("old", &["web"], "routes/web.php", 5),
+        ];
+        let head = vec![
+            route("feed", &["web"], "routes/feeds.php", 9),
+            route("posts", &["web", "auth"], "routes/web.php", 4),
+            route("new", &[], "routes/web.php", 6),
+        ];
+
+        let changes = fact_changes(&base, &head);
+        let uris = |facts: &[RouteFact]| facts.iter().map(|fact| fact.uri.clone()).collect::<Vec<_>>();
+
+        assert_eq!(uris(&changes.added), ["new"]);
+        assert_eq!(uris(&changes.removed), ["old"]);
+        assert_eq!(changes.changed.len(), 1);
+        assert_eq!((changes.changed[0].before.line, changes.changed[0].after.line), (3, 4));
+        assert_eq!(changes.changed[0].after.middleware, ["web", "auth"]);
+    }
+
+    #[test]
+    fn a_listener_registered_once_more_is_added_once_more() {
+        let listener = |how: &'static str, file: &str| ListenerFact {
+            event: "App\\Events\\Published".to_string(),
+            listener: "App\\Listeners\\Notify@handle".to_string(),
+            class: Some("App\\Listeners\\Notify".to_string()),
+            how,
+            file: file.to_string(),
+            line: 9,
+        };
+        let base = vec![listener("discovered", "app/Listeners/Notify.php")];
+        let head = vec![listener("listen", "app/Providers/AppServiceProvider.php"), listener("discovered", "app/Listeners/Notify.php")];
+
+        let changes = fact_changes(&base, &head);
+
+        assert_eq!(changes.added.iter().map(|fact| fact.how).collect::<Vec<_>>(), ["listen"]);
+        assert!(changes.removed.is_empty() && changes.changed.is_empty());
+        assert!(fact_changes(&head, &head).added.is_empty());
     }
 }

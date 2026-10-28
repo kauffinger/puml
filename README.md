@@ -25,7 +25,7 @@ Download the binary for your platform from the
 [latest release](https://github.com/kauffinger/puml/releases/latest):
 
 ```sh
-VERSION=v0.6.0
+VERSION=v0.6.1
 TARGET=aarch64-apple-darwin   # x86_64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
 curl -fsSL "https://github.com/kauffinger/puml/releases/download/$VERSION/puml-extract-$VERSION-$TARGET.tar.gz" | tar -xz
@@ -202,15 +202,19 @@ It tells a reviewer what a text diff does not:
   Classes that depend on each other are grouped.
 - **What else it affects.** The classes outside the pull request that use what it modifies, and how many
   depend on it through others, per module.
+- **What Laravel wires up differently.** The routes, listeners, observers, policies, container bindings,
+  scheduled tasks and middleware it adds, removes or changes: a route that lost a middleware, a model with
+  another policy, an interface bound to another class, each with `file:line`.
 
 Uncommitted and untracked files count, so you can run it before you commit. Moved lines are not
-changes: a dependency is the same dependency wherever it sits in the file. `--strict` fails when the
+changes: a dependency is the same dependency wherever it sits in the file, and a route is the same route
+wherever it is registered. `--strict` fails when the
 pull request adds a rule violation, adds a module to a cycle, or leaves a removed class in use.
 
 The Markdown, for the pull request comment, is shorter: a verdict, a one-row scoreboard, one line per
 finding, and a Mermaid diagram of the classes the pull request changes and the dependencies they gained
 or lost, which GitHub draws. Above 40 classes the diagram is folded away, and above 100 it shows the module edges instead. The reading
-order, the cycles, the users and the metrics are folded away underneath. A pull request with no finding
+order, the cycles, the users, the routes and wiring and the metrics are folded away underneath. A pull request with no finding
 gets a single line instead, with everything else folded away under it. With `--repository`, each
 `file:line` links to the commit it was read from on GitHub: places that the pull request removed point at
 the base, the rest at the head. The head gets no links while it has uncommitted changes.
@@ -219,8 +223,8 @@ An excerpt, for a pull request on `fixtures/blog` that moves a job from the requ
 and renames a listener:
 
 ```
-puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.6.0 (mago 1.54.0)
-classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files declare classes, 1 other file changed
+puml diff: fixture/blog, base HEAD (1ac3ffa) -> head HEAD (1ac3ffa with uncommitted changes), puml-extract 0.6.1 (mago 1.54.0)
+classes: 1 added, 3 modified, 1 renamed, 0 removed; class edges: 4 added, 2 removed; 5 changed files in the graph, 1 other file changed
 architecture: 1 new rule violation, 1 rule violation fixed, 1 module cycle grown, 1 removed class still in use
 
 RULE VIOLATIONS  (one per class edge; puml-extract report explains each rule)
@@ -250,7 +254,7 @@ WHAT ELSE DEPENDS ON IT  (classes outside this pull request that use the classes
 ### On GitHub
 
 The action comments the Markdown report on each pull request and updates that one comment on every
-push. A pull request that changes no class gets no comment. The report is also in the job summary.
+push. A pull request that changes no class, route file or list of service providers gets no comment. The report is also in the job summary.
 Each new rule violation and each use of a removed class is also annotated on its line, so it shows up in
 the Files changed tab: as a warning, or as an error with `strict: true`. GitHub shows at most 10 of each
 per step.
@@ -271,7 +275,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: kauffinger/puml@v0.6.0
+      - uses: kauffinger/puml@v0.6.1
         with:
           strict: true
 ```

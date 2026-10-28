@@ -18,6 +18,7 @@ use mago_syntax::parser::parse_file;
 use mago_syntax::walker::Walker;
 
 use crate::php::*;
+use crate::project::Project;
 use crate::routes::Group;
 use crate::routes::RouteItem;
 use crate::routes::RouteReader;
@@ -225,8 +226,8 @@ pub fn collect_path(path: &Path, relative: &str) -> Option<WiringFacts> {
 
 /// The classes a file names as `Foo::class`: all of them, or those inside the array entry `key`. This is how
 /// bootstrap/providers.php and the `providers` entry of config/app.php list the service providers.
-pub fn listed_classes(root: &Path, relative: &str, key: Option<&str>) -> Vec<String> {
-    let Ok(contents) = std::fs::read(root.join(relative)) else {
+pub fn listed_classes(project: &Project, relative: &str, key: Option<&str>) -> Vec<String> {
+    let Some(contents) = project.read(relative) else {
         return Vec::new();
     };
 
@@ -286,8 +287,11 @@ impl<'ast, 'arena> Walker<'ast, 'arena, Listed<'_, '_, 'arena>> for ListedWalker
 }
 
 /// The route registrations of a file outside the PSR-4 roots that a route file loads.
-pub fn read_route_file(root: &Path, relative: &str) -> Option<Vec<RouteItem>> {
-    let contents = std::fs::read(root.join(relative)).ok()?;
+pub fn read_route_file(project: &Project, relative: &str) -> Option<Vec<RouteItem>> {
+    route_items(relative, project.read(relative)?)
+}
+
+pub fn route_items(relative: &str, contents: Vec<u8>) -> Option<Vec<RouteItem>> {
     let file = File::new(Cow::Owned(relative.as_bytes().to_vec()), FileType::Host, None, Cow::Owned(contents));
     let arena = LocalArena::new();
     let program = parse_file(&arena, &file);

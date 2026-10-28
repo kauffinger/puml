@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { formatMethod, formatProperty, indexGraph, project } from '../viewer/model.js';
@@ -89,3 +92,33 @@ for (const [name, golden] of Object.entries(levels)) {
 function sortKeys(object) {
     return Object.fromEntries(Object.entries(object).sort(([a], [b]) => a.localeCompare(b)));
 }
+
+test('the methods every enum has are written as PHP declares them, in the same order on every run', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'puml-enums-'));
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'composer.json'), JSON.stringify({ name: 'fixture/enums', autoload: { 'psr-4': { 'App\\': 'src/' } } }));
+    writeFileSync(join(dir, 'src/Status.php'), "<?php\n\nnamespace App;\n\nenum Status: string\n{\n    case Paid = 'paid';\n}\n");
+    writeFileSync(join(dir, 'src/Suit.php'), '<?php\n\nnamespace App;\n\nenum Suit\n{\n    case Hearts;\n}\n');
+
+    const signatures = () =>
+        Object.fromEntries(
+            extract(dir)
+                .classes.filter((cls) => !cls.external)
+                .map((cls) => [cls.id, cls.methods.map((method) => formatMethod(method))]),
+        );
+
+    try {
+        const first = signatures();
+
+        assert.deepEqual(first, {
+            'App\\Status': ['+cases(): array', '+from(value: string|int): static', '+tryFrom(value: string|int): ?static'],
+            'App\\Suit': ['+cases(): array'],
+        });
+
+        for (let run = 0; run < 5; run++) {
+            assert.deepEqual(signatures(), first);
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

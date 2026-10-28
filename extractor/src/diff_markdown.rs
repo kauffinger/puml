@@ -11,9 +11,12 @@ use std::collections::HashMap;
 use crate::diff::CycleChange;
 use crate::diff::Diff;
 use crate::diff::ModuleNumbers;
+use crate::diff_laravel;
+use crate::diff_laravel::Style;
 use crate::diff_report::instability;
 use crate::diff_report::short;
 use crate::git::Changes;
+use crate::git::FileStatus;
 use crate::graph::Edge;
 use crate::report::plural;
 
@@ -99,7 +102,13 @@ impl<'a> Comment<'a> {
 
     fn quietly(&mut self) {
         let start = self.lines.len();
-        self.details(&format!("<b>Classes</b>: {} · <b>used by</b> {}", or(self.changed_classes(), "none changed"), self.used_by()));
+        let wiring: Vec<String> = diff_laravel::sections(&self.diff.laravel, Style::Markdown)
+            .iter()
+            .map(|section| format!("{} {}", section.count(), if section.count() == 1 { section.one } else { section.many }))
+            .collect();
+        let wiring = if wiring.is_empty() { String::new() } else { format!(" · <b>Routes and wiring</b>: {} changed", wiring.join(", ")) };
+
+        self.details(&format!("<b>Classes</b>: {}{wiring} · <b>used by</b> {}", or(self.changed_classes(), "none changed"), self.used_by()));
         let opened = self.lines.len();
 
         self.everything();
@@ -124,6 +133,7 @@ impl<'a> Comment<'a> {
         self.reading_order();
         self.cycles();
         self.impact();
+        self.laravel();
         self.everything_else();
     }
 
@@ -221,7 +231,14 @@ impl<'a> Comment<'a> {
         }
 
         for dangling in &diff.dangling {
-            let users: Vec<String> = dangling.used_by.iter().map(|edge| format!("`{}` · {}", class_name(&edge.from), self.evidence(edge, At::Head))).collect();
+            let users: Vec<String> = dangling
+                .used_by
+                .iter()
+                .map(|edge| match is_file(&edge.from) {
+                    true => self.evidence(edge, At::Head),
+                    false => format!("`{}` · {}", class_name(&edge.from), self.evidence(edge, At::Head)),
+                })
+                .collect();
 
             lines.push(format!("🔴 **Removed but still used** `{}` by {}", class_name(&dangling.class), users.join(", ")));
         }
@@ -290,6 +307,14 @@ impl<'a> Comment<'a> {
             status.entry(&dangling.class).or_insert("removed");
         }
 
+        for file in &diff.files {
+            let Some(path) = file.head_path() else { continue };
+
+            if links.keys().any(|(from, to, _)| *from == path || *to == path) {
+                status.insert(path, if file.status == FileStatus::Added { "added" } else { "modified" });
+            }
+        }
+
         if status.is_empty() {
             return true;
         }
@@ -326,6 +351,7 @@ impl<'a> Comment<'a> {
             for id in ids {
                 let label = match renamed_from.get(id) {
                     Some(from) => format!("{}<br/>was {}", class_name(id), class_name(from)),
+                    None if is_file(id) => id.rsplit('/').next().unwrap_or(id).to_string(),
                     None => class_name(id).to_string(),
                 };
 
@@ -609,6 +635,44 @@ impl<'a> Comment<'a> {
         self.end_details();
     }
 
+    /// The routes, listeners, observers, policies, bindings, scheduled tasks and middleware the pull
+    /// request adds, changes or removes.
+    fn laravel(&mut self) {
+        let sections = diff_laravel::sections(&self.diff.laravel, Style::Markdown);
+
+        if sections.is_empty() {
+            return;
+        }
+
+        let summary: Vec<String> = sections.iter().map(diff_laravel::Section::summary).collect();
+        self.details(&format!("<b>Routes and wiring</b>: {}", summary.join(" · ")));
+
+        for section in &sections {
+            self.out(format!("**{}**", section.title));
+            self.out("");
+
+            for fact in section.lines.iter().take(LIMIT) {
+                let change = match fact.change {
+                    "added" => "Added",
+                    "removed" => "Removed",
+                    _ => "Changed",
+                };
+                let place = self.place(&fact.file, fact.line, if fact.at_base { At::Base } else { At::Head });
+
+                self.out(format!("- {change} {} · {place}", fact.text));
+            }
+
+            if section.lines.len() > LIMIT {
+                self.out(format!("- … and {} more; run `puml-extract diff` locally for all of them", section.lines.len() - LIMIT));
+            }
+
+            self.out("");
+        }
+
+        self.lines.pop();
+        self.end_details();
+    }
+
     fn everything_else(&mut self) {
         let diff = self.diff;
         let other_edges = self.other_edges();
@@ -659,10 +723,12 @@ impl<'a> Comment<'a> {
             self.out("");
         }
 
-        for (status, list) in [("New", &diff.outliers.added), ("No longer", &diff.outliers.removed)] {
-            for outlier in list {
-                self.out(format!("- {status} a fan-out outlier: `{}` uses {} app classes outside its module", outlier.id, outlier.fan_out));
-            }
+        for outlier in &diff.outliers.added {
+            self.out(format!("- `{}` is now a fan-out outlier: it uses {} app classes outside its module", outlier.id, outlier.fan_out));
+        }
+
+        for outlier in &diff.outliers.removed {
+            self.out(format!("- `{}` is no longer a fan-out outlier", outlier.id));
         }
 
         let hidden = other_edges.len().saturating_sub(LIMIT);
@@ -687,7 +753,8 @@ impl<'a> Comment<'a> {
         self.end_details();
     }
 
-    /// Edge changes of classes this pull request does not change, whose other end it does.
+    /// Edge changes of classes this pull request does not change, whose other end it does. Wiring edges
+    /// are listed with the routes and wiring they come from.
     fn other_edges(&self) -> Vec<String> {
         let listed: BTreeSet<&str> = self.diff.reading_order.iter().flatten().map(String::as_str).collect();
         let gone: BTreeSet<&str> = self
@@ -704,7 +771,7 @@ impl<'a> Comment<'a> {
 
         added
             .chain(removed)
-            .filter(|(_, edge, _)| !listed.contains(edge.from.as_str()) && !gone.contains(edge.from.as_str()))
+            .filter(|(_, edge, _)| !edge.kind.is_wiring() && !listed.contains(edge.from.as_str()) && !gone.contains(edge.from.as_str()))
             .map(|(status, edge, at)| format!("{status} class edge `{}` → `{}` ({}) · {}", edge.from, edge.to, edge.kind.name(), self.evidence(edge, at)))
             .collect()
     }
@@ -787,6 +854,15 @@ fn class_name(id: &str) -> &str {
     id.rsplit('\\').next().unwrap_or(id)
 }
 
+/// The namespace of a class, or the directory of a route file or bootstrap/app.php.
 fn namespace(id: &str) -> &str {
-    id.rsplit_once('\\').map_or("", |(namespace, _)| namespace)
+    match is_file(id) {
+        true => id.rsplit_once('/').map_or("", |(directory, _)| directory),
+        false => id.rsplit_once('\\').map_or("", |(namespace, _)| namespace),
+    }
+}
+
+/// Route files and bootstrap/app.php are nodes of the graph under their path; no class name has a slash.
+fn is_file(id: &str) -> bool {
+    id.contains('/')
 }

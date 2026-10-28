@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -12,6 +13,16 @@ pub struct Project {
     pub vendor: VendorIndex,
     /// `extra.laravel.dont-discover`: packages whose service providers Laravel does not register.
     pub dont_discover: Vec<String>,
+    /// Set for the project at a pull request's base, whose changed files are read from git.
+    pub base: Option<Base>,
+}
+
+/// The files a pull request changes, as they are at its base.
+pub struct Base {
+    pub dir: PathBuf,
+    pub commit: String,
+    /// The changed files, relative to the project root, and whether the base has them.
+    pub files: HashMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +71,24 @@ impl Project {
             .map(|names| names.iter().filter_map(|name| name.as_str().map(str::to_string)).collect())
             .unwrap_or_default();
 
-        Project { root, name, psr4, vendor, dont_discover }
+        Project { root, name, psr4, vendor, dont_discover, base: None }
+    }
+
+    /// A file of the project that is not a class, such as config/app.php or a route file, as it is at
+    /// the base for the project at a pull request's base.
+    pub fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        match self.base.as_ref().and_then(|base| base.files.get(relative).map(|exists| (base, *exists))) {
+            Some((base, true)) => crate::git::show(&base.dir, &base.commit, relative).ok(),
+            Some((_, false)) => None,
+            None => fs::read(self.root.join(relative)).ok(),
+        }
+    }
+
+    pub fn is_file(&self, relative: &str) -> bool {
+        match self.base.as_ref().and_then(|base| base.files.get(relative)) {
+            Some(exists) => *exists,
+            None => self.root.join(relative).is_file(),
+        }
     }
 
     pub fn php_files(&self) -> Vec<PathBuf> {

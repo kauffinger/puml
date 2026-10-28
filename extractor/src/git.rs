@@ -2,10 +2,13 @@
 //! and untracked files count; the base is the merge base of the given ref and HEAD, which is what a pull
 //! request on GitHub is compared with.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
 use serde::Serialize;
+
+use crate::project::Base;
 
 pub struct Changes {
     pub base_ref: String,
@@ -69,8 +72,21 @@ impl Changes {
     }
 
     pub fn base_contents(&self, project_dir: &Path, path: &str) -> Result<Vec<u8>, String> {
-        git_bytes(project_dir, &["show", &format!("{}:./{path}", self.base_commit)])
+        show(project_dir, &self.base_commit, path)
     }
+
+    /// The changed files and whether the base has them.
+    pub fn at_base(&self, project_dir: &Path) -> Base {
+        let mut files: HashMap<String, bool> = self.files.iter().filter_map(ChangedFile::head_path).map(|path| (path.to_string(), false)).collect();
+        files.extend(self.files.iter().filter_map(ChangedFile::base_path).map(|path| (path.to_string(), true)));
+
+        Base { dir: project_dir.to_path_buf(), commit: self.base_commit.clone(), files }
+    }
+}
+
+/// A file, relative to the project directory, as it is at a commit.
+pub fn show(project_dir: &Path, commit: &str, path: &str) -> Result<Vec<u8>, String> {
+    git_bytes(project_dir, &["show", &format!("{commit}:./{path}")])
 }
 
 /// `git diff --name-status -z` prints `M\0path\0`, and for a rename `R096\0old\0new\0`.

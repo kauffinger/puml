@@ -1,0 +1,151 @@
+{
+    "files": [
+        "added app/Http/Controllers/CommentController.php",
+        "added app/Listeners/LogPublication.php",
+        "modified app/Observers/PostObserver.php",
+        "modified app/Providers/AppServiceProvider.php",
+        "modified routes/api.php",
+        "modified routes/console.php",
+        "modified routes/web.php"
+    ],
+    "other_files": [],
+    "laravel": {
+        "routes": {
+            "added": [
+                {
+                    "from": "routes/web.php",
+                    "methods": ["POST"],
+                    "uri": "posts/{post}/comments",
+                    "name": "comments.store",
+                    "action": "App\\Http\\Controllers\\CommentController@store",
+                    "target": "App\\Http\\Controllers\\CommentController",
+                    "middleware": ["web", "admin"],
+                    "file": "routes/web.php",
+                    "line": 16
+                }
+            ],
+            "removed": [
+                {
+                    "from": "routes/web.php",
+                    "methods": ["GET", "HEAD"],
+                    "uri": "/",
+                    "name": "home",
+                    "action": "view:welcome",
+                    "middleware": ["web"],
+                    "file": "routes/web.php",
+                    "line": 6
+                }
+            ],
+            "changed": [
+                {
+                    "before": {
+                        "from": "routes/web.php",
+                        "methods": ["POST"],
+                        "uri": "posts",
+                        "name": "posts.store",
+                        "action": "App\\Http\\Controllers\\PostController@store",
+                        "target": "App\\Http\\Controllers\\PostController",
+                        "middleware": ["web", "admin"],
+                        "file": "routes/web.php",
+                        "line": 14
+                    },
+                    "after": {
+                        "from": "routes/web.php",
+                        "methods": ["POST"],
+                        "uri": "posts",
+                        "name": "posts.store",
+                        "action": "App\\Http\\Controllers\\PostController@store",
+                        "target": "App\\Http\\Controllers\\PostController",
+                        "middleware": ["web"],
+                        "file": "routes/web.php",
+                        "line": 12
+                    }
+                }
+            ]
+        },
+        "listeners": {
+            "added": [
+                {
+                    "event": "App\\Events\\PostPublished",
+                    "listener": "App\\Listeners\\LogPublication@handle",
+                    "class": "App\\Listeners\\LogPublication",
+                    "how": "discovered",
+                    "file": "app/Listeners/LogPublication.php",
+                    "line": 9
+                },
+                {
+                    "event": "App\\Events\\PostPublished",
+                    "listener": "App\\Listeners\\LogPublication@handle",
+                    "class": "App\\Listeners\\LogPublication",
+                    "how": "listen",
+                    "file": "app/Providers/AppServiceProvider.php",
+                    "line": 23
+                }
+            ],
+            "removed": [],
+            "changed": []
+        },
+        "observers": {
+            "added": [],
+            "removed": [],
+            "changed": [
+                {
+                    "before": {
+                        "model": "App\\Models\\Post",
+                        "observer": "App\\Observers\\PostObserver",
+                        "events": ["created", "deleted"],
+                        "how": "attribute",
+                        "file": "app/Models/Post.php",
+                        "line": 9
+                    },
+                    "after": {
+                        "model": "App\\Models\\Post",
+                        "observer": "App\\Observers\\PostObserver",
+                        "events": ["created", "updated", "deleted"],
+                        "how": "attribute",
+                        "file": "app/Models/Post.php",
+                        "line": 9
+                    }
+                }
+            ]
+        },
+        "policies": { "added": [], "removed": [], "changed": [] },
+        "bindings": {
+            "added": [],
+            "removed": [],
+            "changed": [
+                {
+                    "before": {
+                        "key": "App\\Contracts\\Feed",
+                        "concrete": "App\\Services\\RssFeed",
+                        "lifetime": "singleton",
+                        "file": "app/Providers/AppServiceProvider.php",
+                        "line": 16
+                    },
+                    "after": {
+                        "key": "App\\Contracts\\Feed",
+                        "concrete": "App\\Services\\RssFeed",
+                        "lifetime": "bind",
+                        "file": "app/Providers/AppServiceProvider.php",
+                        "line": 17
+                    }
+                }
+            ]
+        },
+        "schedule": {
+            "added": [],
+            "removed": [
+                {
+                    "from": "routes/console.php",
+                    "task": "job",
+                    "target": "App\\Jobs\\SendDigest",
+                    "class": "App\\Jobs\\SendDigest",
+                    "file": "routes/console.php",
+                    "line": 8
+                }
+            ],
+            "changed": []
+        },
+        "middleware": { "added": [], "removed": [], "changed": [] }
+    }
+}
