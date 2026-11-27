@@ -26,6 +26,8 @@ const LIMIT: usize = 40;
 /// folded: its labels stay readable, but at 90 classes it is some 14,000 pixels tall.
 const GRAPH_LIMIT: usize = 100;
 const NAMES_PER_LINE: usize = 8;
+/// A cycle that grew names this many of the class edges it grew through.
+const JOINED_THROUGH: usize = 5;
 
 const GREEN: &str = "#1a7f37";
 const RED: &str = "#cf222e";
@@ -227,7 +229,19 @@ impl<'a> Comment<'a> {
         }
 
         for cycle in &diff.cycles {
-            lines.push(cycle_finding(cycle));
+            let mut line = cycle_finding(cycle);
+
+            for edge in cycle.joined_through.iter().take(JOINED_THROUGH) {
+                line.push_str(&format!("\n  - through {} · {}", arrow(&edge.from, &edge.to), self.evidence(edge, At::Head)));
+            }
+
+            let hidden = cycle.joined_through.len().saturating_sub(JOINED_THROUGH);
+
+            if hidden > 0 {
+                line.push_str(&format!("\n  - … and {hidden} more new class edge{} between these modules", plural(hidden, "s")));
+            }
+
+            lines.push(line);
         }
 
         for dangling in &diff.dangling {
@@ -261,8 +275,9 @@ impl<'a> Comment<'a> {
     }
 
     /// The classes the pull request adds, modifies, renames and removes, the class edges it adds and
-    /// removes between them and other classes, grouped by namespace. False if there are too many classes
-    /// to draw.
+    /// removes between them and other classes, grouped by namespace. A vendor class is drawn only where a
+    /// class extends or implements it or uses its trait: which framework helpers a class calls is not its
+    /// place in the architecture. False if there are too many classes to draw.
     fn class_graph(&mut self) -> bool {
         let diff = self.diff;
 
@@ -290,9 +305,15 @@ impl<'a> Comment<'a> {
             diff.classes.removed.iter().chain(diff.classes.renamed.iter().map(|renamed| &renamed.from)).map(|class| class.id.as_str()).collect();
 
         let mut links: BTreeMap<(&str, &str, Change), Link> = BTreeMap::new();
+        let mut vendor_uses: BTreeSet<(&str, &str)> = BTreeSet::new();
 
         for (change, edges) in [(Change::Added, &diff.edges.added), (Change::Removed, &diff.edges.removed)] {
             for edge in edges.iter().filter(|edge| !gone.contains(edge.from.as_str())) {
+                if diff.vendor_classes.contains(&edge.to) && !edge.kind.is_inheritance() && !edge.kind.is_wiring() {
+                    vendor_uses.insert((&edge.from, &edge.to));
+                    continue;
+                }
+
                 let link = links.entry((&edge.from, &edge.to, change)).or_default();
                 link.kinds.insert(edge.kind.name());
                 link.breaks_rule |= change == Change::Added && self.breaks_rule(edge);
@@ -419,10 +440,16 @@ impl<'a> Comment<'a> {
 
         self.out("```");
         self.out("");
-        self.out(
+        let vendor_uses = match vendor_uses.len() {
+            0 => String::new(),
+            1 => " Not drawn: 1 changed use of a vendor class.".to_string(),
+            count => format!(" Not drawn: {count} changed uses of vendor classes."),
+        };
+
+        self.out(format!(
             "<sub>Boxes: green added, yellow modified, blue renamed, red removed. Arrows: green new dependency, purple breaks a rule, \
-             red dashed dependency removed, thick red uses a removed class.</sub>",
-        );
+             red dashed dependency removed, thick red uses a removed class.{vendor_uses}</sub>"
+        ));
 
         if folded {
             self.end_details();

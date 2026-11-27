@@ -49,6 +49,7 @@ function summarize(diff, worsens) {
             status: cycle.status,
             after: cycle.after,
             joined: cycle.joined,
+            joined_through: cycle.joined_through.map(edge),
             left: cycle.left,
             cut_class_edges: cycle.cost?.class_edges ?? null,
         })),
@@ -100,7 +101,7 @@ describe('a pull request on the blog', () => {
         assert.deepEqual(summarize(result, diff(dir, 'main', '--strict').status === 1), expected);
     });
 
-    test('adds and removes exactly the edges between a fresh extraction of each side', () => {
+    test('adds and removes exactly the edges between a fresh extraction of each side, but for those a renamed class brought along', () => {
         const head = extract(dir);
         git(dir, 'checkout', '--quiet', 'main');
         const base = extract(dir);
@@ -108,9 +109,15 @@ describe('a pull request on the blog', () => {
 
         const [before, now] = [new Set(base.edges.map(key)), new Set(head.edges.map(key))];
         const result = diffJson(dir, 'main');
+        const broughtAlong = [
+            'App\\Listeners\\NotifyAuthor|App\\Events\\PostPublished|signature|',
+            'App\\Listeners\\SendPublishedNotification|App\\Events\\PostPublished|signature|',
+        ];
+        const changed = (one, other) => [...one].filter((edge) => !other.has(edge) && !broughtAlong.includes(edge)).sort();
 
-        assert.deepEqual(result.edges.added.map(key).sort(), [...now].filter((edge) => !before.has(edge)).sort());
-        assert.deepEqual(result.edges.removed.map(key).sort(), [...before].filter((edge) => !now.has(edge)).sort());
+        assert.ok(broughtAlong.every((edge) => before.has(edge) || now.has(edge)));
+        assert.deepEqual(result.edges.added.map(key).sort(), changed(now, before));
+        assert.deepEqual(result.edges.removed.map(key).sort(), changed(before, now));
     });
 
     test('has nothing to say about a branch compared with itself', () => {
@@ -131,6 +138,8 @@ describe('a pull request on the blog', () => {
         assert.match(text, /removed public static function fromRequest\(StorePostRequest \$request\): self/);
         assert.match(markdown, /^\| 🔴 1 new, 🟢 1 fixed \| 🔴 1 grew \| 🔴 1 \| 1 added, 3 modified, 1 renamed \|/m);
         assert.match(markdown, /🔴 \*\*Removed but still used\*\* `NotifyAuthor` by `PostPublished`/);
+        assert.match(markdown, /`App\\Data` joined\n  - through `PostData` → `StorePostRequest` · `app\/Data\/PostData.php:15`\n/);
+        assert.match(text, /joined through App\\Data\\PostData -> App\\Http\\Requests\\StorePostRequest  app\/Data\/PostData.php:15/);
         assert.match(markdown, /### The classes it changes\n\n```mermaid\nflowchart LR/);
         assert.match(markdown, /<summary><b>Read in this order<\/b>: 5 classes/);
     });
@@ -197,6 +206,27 @@ describe('the pull request comment', () => {
         assert.match(comment, /^<details><summary><b>Classes<\/b>: 1 modified · <b>used by<\/b> 6 directly, 8 in all<\/summary>$/m);
         assert.match(comment, /```mermaid\nflowchart LR/);
         assert.ok(comment.trimEnd().endsWith('</details>'));
+    });
+
+    test('draws a vendor class only where a class extends it, and counts the other uses', () => {
+        git(dir, 'checkout', '--quiet', '-b', 'vendor', 'main');
+        mkdirSync(join(blog, 'app/Support'));
+        writeFileSync(
+            join(blog, 'app/Support/Draft.php'),
+            '<?php\n\nnamespace App\\Support;\n\nuse Illuminate\\Console\\Command;\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Draft extends Model\n{\n    public function announce(Command $command): void\n    {\n    }\n}\n',
+        );
+        git(dir, 'add', '--all');
+        git(dir, '-c', 'user.name=puml', '-c', 'user.email=puml@example.com', 'commit', '--quiet', '-m', 'Drafts');
+
+        const comment = markdown();
+
+        assert.match(comment, /c\d+\["Draft"\]/);
+        assert.match(comment, /c\d+ -->\|"extends"\| c\d+/);
+        assert.match(comment, /c\d+\["Model"\]/);
+        assert.doesNotMatch(comment, /\["Command"\]/);
+        assert.match(comment, /thick red uses a removed class\. Not drawn: 1 changed use of a vendor class\.<\/sub>/);
+
+        git(dir, 'checkout', '--quiet', 'quiet');
     });
 
     test('folds a class graph above 40 classes and draws module edges above 100', () => {

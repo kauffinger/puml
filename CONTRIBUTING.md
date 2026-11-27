@@ -120,6 +120,10 @@ viewer and `report` read the same violations, cycles and metrics and never disag
 
 - A class's layer is decided by the first namespace segment under its PSR-4 root. The segment table is
   `LAYER_SEGMENTS` in `verdict.rs`.
+- `Mcp` is a layer of its own that no rule names. In 12 applications with 404 classes under `App\Mcp`, 62
+  of its 65 dependencies on `Http` were tools answering with API resources, and 13 of the 14 dependencies
+  of the core on it reached enums, a trait and a helper kept under `Mcp`. A core that depends on `Mcp` is
+  in a module cycle with it, which the cycles report.
 - Providers, database and tests may depend on anything, and anything may depend on providers: the stock
   Breeze controllers reference `AppServiceProvider::HOME`. Vendor classes are never part of a rule.
 - The rules are only checked when the project depends on `laravel/framework`; `laravel/framework`
@@ -156,17 +160,25 @@ six violations and one cycle.
   observer of the same model, the policy of a model, the binding of a key, the class of a middleware alias.
   Equal facts are matched where they are written first, so of two equal registrations the new one is
   reported.
-- **A rename** is a file git reports as renamed that holds exactly one removed and one added class.
+- **A rename** is a file git reports as renamed that holds exactly one removed and one added class. The
+  edges and rule violations the class had under its old name are neither added nor removed (`Carried`).
+  They are matched by their ends and kind alone, because their label often carries the old name.
 - **A removed class still in use** is a class declared at the base that the head only references: it is
   external but under an app root.
 - **Cycles** are compared by `remaining`, the modules still in a cycle once traits, interfaces and
   abstract classes are counted with their users, as in the report. A trait module that joins a cycle
-  through its users is not a join.
+  through its users is not a join. `joined_through` lists the added class edges between a module that
+  joined and another module of the cycle, where no class edge ran that way at the base.
 - **The reading order** groups the classes of the changed files into strongly connected components
   (Tarjan) and orders the groups so a class comes after the classes of the pull request it depends on
   (Kahn).
 - **The impact** is the classes outside the pull request that use a modified class, and everything that
-  reaches a modified class transitively, counted per module.
+  reaches a modified class transitively, counted per module. `api_changed` is set when a member others can
+  see was changed or removed; a member that was only added cannot break a user.
+- **The class diagram** of the Markdown draws a vendor class only where a class extends or implements it
+  or uses its trait. In 34 pull requests of six applications, 43% of the changed dependencies reached
+  vendor classes, most of them framework helpers. The others are counted under the diagram, and
+  `vendor_classes` names the vendor ends of the changed edges.
 - `--strict` exits 1 when the head adds a rule violation, adds a module to a cycle, or leaves a removed
   class in use.
 
@@ -269,8 +281,8 @@ To release, bump `version` in `extractor/Cargo.toml` and the `version` input's d
 commit, and push a matching tag:
 
 ```sh
-git tag v0.6.1
-git push origin v0.6.1
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
 `.github/workflows/release.yml` fails if the tag differs from the crate version or from the action's

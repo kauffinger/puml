@@ -8,6 +8,7 @@
 //! are matched without their label, which only lists the members involved, and wiring edges without
 //! theirs, which repeats the route, events or lifetime that the routes and wiring facts compare. Evidence
 //! lines are never compared: an edge that moved down because lines were inserted above it has not changed.
+//! A renamed class keeps the edges it had under its old name: they are neither added nor removed.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -40,7 +41,7 @@ use crate::verdict::is_vendor;
 use crate::verdict::module_of;
 use crate::verdict::strongly_connected;
 
-pub const DIFF_FORMAT_VERSION: u32 = 2;
+pub const DIFF_FORMAT_VERSION: u32 = 3;
 
 /// The files the graph reads the registered service providers from.
 const PROVIDER_LISTS: [&str; 2] = ["bootstrap/providers.php", "config/app.php"];
@@ -59,6 +60,8 @@ pub struct Diff {
     pub other_files: Vec<ChangedFile>,
     pub classes: ClassChanges,
     pub edges: EdgeChanges,
+    /// The classes at an end of a changed edge that come from a vendor package or from PHP itself.
+    pub vendor_classes: BTreeSet<String>,
     /// Edges between app modules whose weight changed, in class edges.
     pub modules: Vec<ModuleChange>,
     pub violations: ViolationChanges,
@@ -163,6 +166,9 @@ pub struct CycleChange {
     pub after: Option<Vec<String>>,
     pub joined: Vec<String>,
     pub left: Vec<String>,
+    /// The class edges the pull request adds between a module that joined and another module of the
+    /// cycle, where no class edge ran that way between the two modules at the base.
+    pub joined_through: Vec<Edge>,
     /// The cheapest cut at the head.
     pub cut: Vec<CutEdge>,
     pub cost: Option<Cost>,
@@ -356,6 +362,8 @@ impl Fact for MiddlewareFact {
 #[derive(Debug, Serialize)]
 pub struct ClassImpact {
     pub class: String,
+    /// A member other classes can see was changed or removed. A member that was only added cannot break
+    /// a class that uses this one.
     pub api_changed: bool,
     pub dependents: Vec<String>,
 }
@@ -396,6 +404,55 @@ impl<'a> Side<'a> {
     }
 }
 
+/// A renamed class keeps its edges under its new name, so they are not changes. An edge at a renamed
+/// class is matched by its ends and kind alone, because its label often carries the old name.
+struct Carried<'a> {
+    now: HashMap<&'a str, &'a str>,
+    at_base: HashSet<(&'a str, &'a str, EdgeKind)>,
+    at_head: HashSet<(&'a str, &'a str, EdgeKind)>,
+}
+
+impl<'a> Carried<'a> {
+    fn new(before: &Side<'a>, after: &Side<'a>, renamed: &'a [Renamed]) -> Self {
+        let now: HashMap<&str, &str> = renamed.iter().map(|renamed| (renamed.from.id.as_str(), renamed.to.id.as_str())).collect();
+        let new_names: HashSet<&str> = now.values().copied().collect();
+        let name_now = |id: &'a str| now.get(id).copied().unwrap_or(id);
+
+        let at_base = before
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| now.contains_key(edge.from.as_str()) || now.contains_key(edge.to.as_str()))
+            .map(|edge| (name_now(&edge.from), name_now(&edge.to), edge.kind))
+            .collect();
+        let at_head = after
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| new_names.contains(edge.from.as_str()) || new_names.contains(edge.to.as_str()))
+            .map(|edge| (edge.from.as_str(), edge.to.as_str(), edge.kind))
+            .collect();
+
+        Carried { now, at_base, at_head }
+    }
+
+    fn name_now<'b>(&'b self, id: &'b str) -> &'b str {
+        self.now.get(id).copied().unwrap_or(id)
+    }
+
+    /// Whether this edge of the head was at the base under the old name.
+    fn was_at_base(&self, edge: &Edge) -> bool {
+        self.at_base.contains(&(edge.from.as_str(), edge.to.as_str(), edge.kind))
+    }
+
+    /// Whether this edge of the base is at the head under the new name.
+    fn is_at_head(&self, edge: &Edge) -> bool {
+        let (from, to) = (edge.from.as_str(), edge.to.as_str());
+
+        (self.now.contains_key(from) || self.now.contains_key(to)) && self.at_head.contains(&(self.name_now(from), self.name_now(to), edge.kind))
+    }
+}
+
 impl Diff {
     pub fn of(base: &Graph, head: &Graph, changes: &Changes) -> Diff {
         let before = Side::new(base);
@@ -425,16 +482,24 @@ impl Diff {
             .map(|class| class.id.as_str())
             .collect();
 
+        let carried = Carried::new(&before, &after, &classes.renamed);
+        let edges = edge_changes(&before, &after, &carried);
+        let violations = violation_changes(base, head, &carried);
+        let modules = module_changes(&before, &after);
+        let cycles = cycle_changes(base, head, &after, &modules, &edges.added);
+        let vendor_classes = vendor_classes(&before, &after, &edges);
+
         Diff {
             version: DIFF_FORMAT_VERSION,
             project: head.project.clone(),
             generator: head.generator.clone(),
             base: Revision { reference: changes.base_ref.clone(), commit: changes.base_commit.clone(), uncommitted: false },
             head: Revision { reference: "HEAD".to_string(), commit: changes.head_commit.clone(), uncommitted: changes.uncommitted },
-            edges: edge_changes(&before, &after),
-            modules: module_changes(&before, &after),
-            violations: violation_changes(base, head),
-            cycles: cycle_changes(base, head),
+            edges,
+            vendor_classes,
+            modules,
+            violations,
+            cycles,
             metrics: metrics_changes(base, head),
             outliers: outlier_changes(base, head),
             dangling: dangling(&before, &after),
@@ -584,12 +649,25 @@ fn property_signature(property: &Property) -> String {
     format!("{} {kind}${}", modifiers.join(" "), property.name)
 }
 
-fn edge_changes(before: &Side<'_>, after: &Side<'_>) -> EdgeChanges {
-    let only = |one: &Side<'_>, other: &Side<'_>| -> Vec<Edge> {
-        one.graph.edges.iter().filter(|edge| !other.edges.contains_key(&key(edge))).cloned().collect()
+fn edge_changes(before: &Side<'_>, after: &Side<'_>, carried: &Carried<'_>) -> EdgeChanges {
+    EdgeChanges {
+        added: after.graph.edges.iter().filter(|edge| !before.edges.contains_key(&key(edge)) && !carried.was_at_base(edge)).cloned().collect(),
+        removed: before.graph.edges.iter().filter(|edge| !after.edges.contains_key(&key(edge)) && !carried.is_at_head(edge)).cloned().collect(),
+    }
+}
+
+/// The classes at an end of a changed edge that come from a vendor package or from PHP itself.
+fn vendor_classes(before: &Side<'_>, after: &Side<'_>, edges: &EdgeChanges) -> BTreeSet<String> {
+    let ends = |side: &Side<'_>, edges: &[Edge]| -> Vec<String> {
+        edges
+            .iter()
+            .flat_map(|edge| [edge.from.as_str(), edge.to.as_str()])
+            .filter(|id| side.classes.get(id).is_some_and(|class| is_vendor(class)))
+            .map(str::to_string)
+            .collect()
     };
 
-    EdgeChanges { added: only(after, before), removed: only(before, after) }
+    ends(after, &edges.added).into_iter().chain(ends(before, &edges.removed)).collect()
 }
 
 /// App-to-app module edges with their weight and the rule violations among their class edges.
@@ -638,10 +716,13 @@ fn module_changes(before: &Side<'_>, after: &Side<'_>) -> Vec<ModuleChange> {
         .collect()
 }
 
-fn violation_changes(base: &Graph, head: &Graph) -> ViolationChanges {
+fn violation_changes(base: &Graph, head: &Graph, carried: &Carried<'_>) -> ViolationChanges {
     let (old, new) = (violations_by_key(base), violations_by_key(head));
 
-    ViolationChanges { added: violations_only_in(&new, &old, head), removed: violations_only_in(&old, &new, base) }
+    ViolationChanges {
+        added: violations_only_in(&new, &old, head, |edge| carried.was_at_base(edge)),
+        removed: violations_only_in(&old, &new, base, |edge| carried.is_at_head(edge)),
+    }
 }
 
 fn violations_by_key(graph: &Graph) -> BTreeMap<(&'static str, EdgeKey<'_>), usize> {
@@ -652,14 +733,40 @@ fn violations_only_in(
     one: &BTreeMap<(&'static str, EdgeKey<'_>), usize>,
     other: &BTreeMap<(&'static str, EdgeKey<'_>), usize>,
     graph: &Graph,
+    carried: impl Fn(&Edge) -> bool,
 ) -> Vec<ViolationRef> {
     one.iter()
-        .filter(|(key, _)| !other.contains_key(*key))
+        .filter(|(key, edge)| !other.contains_key(*key) && !carried(&graph.edges[**edge]))
         .map(|((rule, _), edge)| ViolationRef { rule, edge: graph.edges[*edge].clone() })
         .collect()
 }
 
-fn cycle_changes(base: &Graph, head: &Graph) -> Vec<CycleChange> {
+/// One edge for each pair of classes, in the order the edges were found.
+fn joined_through(modules: &BTreeSet<&str>, joined: &[String], changes: &[ModuleChange], added: &[Edge], after: &Side<'_>) -> Vec<Edge> {
+    let new: HashSet<(&str, &str)> = changes
+        .iter()
+        .filter(|change| change.before == 0 && modules.contains(change.from.as_str()) && modules.contains(change.to.as_str()))
+        .filter(|change| joined.contains(&change.from) || joined.contains(&change.to))
+        .map(|change| (change.from.as_str(), change.to.as_str()))
+        .collect();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
+
+    added
+        .iter()
+        .filter(|edge| !edge.kind.is_wiring())
+        .filter(|edge| {
+            let (Some(from), Some(to)) = (after.classes.get(edge.from.as_str()), after.classes.get(edge.to.as_str())) else {
+                return false;
+            };
+
+            new.contains(&(module_of(from).as_str(), module_of(to).as_str()))
+        })
+        .filter(|edge| seen.insert((edge.from.as_str(), edge.to.as_str())))
+        .cloned()
+        .collect()
+}
+
+fn cycle_changes(base: &Graph, head: &Graph, after: &Side<'_>, module_changes: &[ModuleChange], added: &[Edge]) -> Vec<CycleChange> {
     let old: Vec<BTreeSet<&str>> = base.verdict.cycles.iter().map(|cycle| cycle.remaining.iter().map(String::as_str).collect()).collect();
     let mut matched: HashSet<usize> = HashSet::new();
     let mut changes = Vec::new();
@@ -687,6 +794,7 @@ fn cycle_changes(base: &Graph, head: &Graph) -> Vec<CycleChange> {
             },
             before: overlapping.iter().map(|index| base.verdict.cycles[*index].remaining.clone()).collect(),
             after: Some(cycle.remaining.clone()),
+            joined_through: joined_through(&modules, &joined, module_changes, added, after),
             joined,
             left,
             cut: cycle.cut.iter().map(|edge| CutEdge { from: edge.from.clone(), to: edge.to.clone(), weight: edge.weight }).collect(),
@@ -701,6 +809,7 @@ fn cycle_changes(base: &Graph, head: &Graph) -> Vec<CycleChange> {
                 before: vec![cycle.remaining.clone()],
                 after: None,
                 joined: Vec::new(),
+                joined_through: Vec::new(),
                 left: cycle.remaining.clone(),
                 cut: Vec::new(),
                 cost: None,
@@ -789,7 +898,7 @@ fn impact(after: &Side<'_>, classes: &ClassChanges, in_pull_request: &HashSet<&s
                 .map(|id| id.to_string())
                 .collect();
 
-            (!dependents.is_empty()).then(|| ClassImpact { class: modified.class.id.clone(), api_changed: !modified.members.is_empty(), dependents })
+            (!dependents.is_empty()).then(|| ClassImpact { class: modified.class.id.clone(), api_changed: modified.members.iter().any(|member| member.change != "added"), dependents })
         })
         .collect();
 
@@ -1104,6 +1213,10 @@ mod tests {
         assert_eq!(diff.cycles.len(), 1);
         assert_eq!(diff.cycles[0].status, "grown");
         assert_eq!(diff.cycles[0].joined, vec!["App\\C".to_string()]);
+        assert_eq!(
+            diff.cycles[0].joined_through.iter().map(|edge| (edge.from.as_str(), edge.to.as_str())).collect::<Vec<_>>(),
+            vec![("App\\B\\Two", "App\\C\\Three"), ("App\\C\\Three", "App\\A\\One")]
+        );
         assert!(diff.worsens());
 
         let reverse = Diff::of(&head, &base, &modified(&["app/B/Two.php", "app/C/Three.php"]));
@@ -1185,6 +1298,98 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn renamed(from: &str, to: &str) -> ChangedFile {
+        ChangedFile { path: to.to_string(), status: FileStatus::Renamed, from: Some(from.to_string()) }
+    }
+
+    #[test]
+    fn a_renamed_class_brings_its_edges_along() {
+        let base = graph(
+            classes(&["App\\Listeners\\Notify", "App\\Events\\Published", "App\\Jobs\\Send"]),
+            vec![
+                edge("App\\Listeners\\Notify", "App\\Events\\Published", EdgeKind::Signature, Some("Notify::handle()"), 9),
+                edge("App\\Jobs\\Send", "App\\Listeners\\Notify", EdgeKind::Injects, Some("$notify"), 7),
+            ],
+        );
+        let head = graph(
+            classes(&["App\\Listeners\\Announce", "App\\Events\\Published", "App\\Jobs\\Send"]),
+            vec![
+                edge("App\\Listeners\\Announce", "App\\Events\\Published", EdgeKind::Signature, Some("Announce::handle()"), 9),
+                edge("App\\Jobs\\Send", "App\\Listeners\\Announce", EdgeKind::Injects, Some("$announce"), 7),
+                reference("App\\Listeners\\Announce", "App\\Jobs\\Send"),
+            ],
+        );
+        let mut changes = modified(&["app/Jobs/Send.php"]);
+        changes.files.push(renamed("app/Listeners/Notify.php", "app/Listeners/Announce.php"));
+
+        let diff = Diff::of(&base, &head, &changes);
+
+        assert_eq!(diff.classes.renamed.len(), 1);
+        assert_eq!(
+            diff.edges.added.iter().map(|edge| (edge.from.as_str(), edge.to.as_str())).collect::<Vec<_>>(),
+            vec![("App\\Listeners\\Announce", "App\\Jobs\\Send")]
+        );
+        assert!(diff.edges.removed.is_empty());
+    }
+
+    #[test]
+    fn a_violation_at_a_renamed_class_is_neither_new_nor_fixed() {
+        let base = graph(classes(&["App\\Models\\Post", "App\\Http\\Old"]), vec![reference("App\\Models\\Post", "App\\Http\\Old")]);
+        let head = graph(classes(&["App\\Models\\Post", "App\\Http\\Fresh"]), vec![reference("App\\Models\\Post", "App\\Http\\Fresh")]);
+        let mut changes = modified(&["app/Models/Post.php"]);
+        changes.files.push(renamed("app/Http/Old.php", "app/Http/Fresh.php"));
+
+        assert_eq!(head.verdict.violations.len(), 1);
+
+        let diff = Diff::of(&base, &head, &changes);
+
+        assert!(diff.violations.added.is_empty() && diff.violations.removed.is_empty());
+        assert!(!diff.worsens());
+    }
+
+    #[test]
+    fn the_vendor_ends_of_changed_edges_are_listed() {
+        let ids = ["App\\Models\\Post", "App\\Models\\User"];
+        let with_vendor = |mut classes: Vec<ClassNode>| {
+            classes.push(ClassNode::external("Illuminate\\Support\\Str", "laravel/framework"));
+            classes
+        };
+        let base = graph(with_vendor(classes(&ids)), Vec::new());
+        let head = graph(
+            with_vendor(classes(&ids)),
+            vec![edge("App\\Models\\Post", "Illuminate\\Support\\Str", EdgeKind::Static, None, 8), reference("App\\Models\\Post", "App\\Models\\User")],
+        );
+        let diff = Diff::of(&base, &head, &modified(&["app/Models/Post.php"]));
+
+        assert_eq!(diff.vendor_classes, BTreeSet::from(["Illuminate\\Support\\Str".to_string()]));
+    }
+
+    #[test]
+    fn a_member_that_was_only_added_does_not_change_the_api() {
+        let method = |name: &str| Method {
+            name: name.to_string(),
+            visibility: "public",
+            r#static: false,
+            r#abstract: false,
+            params: Vec::new(),
+            returns: None,
+            line: 4,
+            first_parameter: Vec::new(),
+        };
+        let side = |post: &[&str], user: &[&str]| {
+            let mut classes = classes(&["App\\Models\\Post", "App\\Models\\User", "App\\Jobs\\Publish"]);
+            classes[0].methods = post.iter().map(|name| method(name)).collect();
+            classes[1].methods = user.iter().map(|name| method(name)).collect();
+
+            graph(classes, vec![reference("App\\Jobs\\Publish", "App\\Models\\Post"), reference("App\\Jobs\\Publish", "App\\Models\\User")])
+        };
+        let diff = Diff::of(&side(&["url"], &["name"]), &side(&["url", "slug"], &[]), &modified(&["app/Models/Post.php", "app/Models/User.php"]));
+
+        let api: Vec<(&str, bool)> = diff.impact.classes.iter().map(|entry| (entry.class.as_str(), entry.api_changed)).collect();
+
+        assert_eq!(api, vec![("App\\Models\\User", true), ("App\\Models\\Post", false)]);
     }
 
     #[test]

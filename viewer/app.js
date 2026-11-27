@@ -8,7 +8,7 @@ const EVIDENCE_LIMIT = 400;
 const BUSIEST_LIMIT = 5;
 const MINIMUM_SCALE = 1;
 const MODULE_EDGE_BUDGET = 30;
-const LAYER_ORDER = ['entry', 'http', 'console', 'providers', 'core', 'database', 'tests'];
+const LAYER_ORDER = ['entry', 'http', 'mcp', 'console', 'providers', 'core', 'database', 'tests'];
 const WIRING_COLOR = '#0f766e';
 
 const HOW_TO = 'Click a node or edge to select it, double-click to open it. Esc goes up.';
