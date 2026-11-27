@@ -5,10 +5,17 @@
 //! API into the core of your application. The HTTP protocol and CLI are both mechanisms to interact with
 //! your application, but do not actually contain application logic." Every app class is therefore placed
 //! in one layer by the first namespace segment under its PSR-4 root: `http` (Http, and the UI packages that
-//! live beside it: Livewire, Filament, Nova, View), `console`, `providers`, `database` (the Database\*
-//! roots), `tests`, and `core` for everything else. The rules say which layers may not depend on which,
-//! and each violation is one class edge with its file:line. Vendor classes are never on either side of a
-//! rule.
+//! live beside it: Livewire, Filament, Nova, View), `mcp`, `console`, `providers`, `database` (the
+//! Database\* roots), `tests`, and `core` for everything else. The rules say which layers may not depend
+//! on which, and each violation is one class edge with its file:line. Vendor classes are never on either
+//! side of a rule.
+//!
+//! `mcp` holds the servers, tools, resources and prompts of Laravel MCP: a third mechanism to interact
+//! with the application, served over HTTP (`Mcp::web`) or from the console (`Mcp::local`). No rule names
+//! it. A tool answers with the API resources Http defines, a page lists the tools and a command serves
+//! the server, so it is not kept apart from Http or Console. Applications also keep enums and helpers
+//! under `Mcp`, which their models use, so a rule on the first segment would mostly judge where a file
+//! is kept. A core that depends on `Mcp` is in a module cycle with it, and the cycles report that.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -31,6 +38,7 @@ pub struct LayerSegments {
 
 pub const LAYER_SEGMENTS: &[LayerSegments] = &[
     LayerSegments { layer: "http", segments: &["Http", "Livewire", "Filament", "Nova", "View"] },
+    LayerSegments { layer: "mcp", segments: &["Mcp"] },
     LayerSegments { layer: "console", segments: &["Console"] },
     LayerSegments { layer: "providers", segments: &["Providers"] },
 ];
@@ -905,6 +913,7 @@ mod tests {
         assert_eq!(layer(declare("App\\Crawler", "App")), "core");
         assert_eq!(layer(declare("App\\Http\\Controllers\\UserController", "App")), "http");
         assert_eq!(layer(declare("App\\Livewire\\Profile", "App")), "http");
+        assert_eq!(layer(declare("App\\Mcp\\Tools\\ListUsers", "App")), "mcp");
         assert_eq!(layer(declare("App\\Console\\Commands\\Prune", "App")), "console");
         assert_eq!(layer(declare("App\\Providers\\AppServiceProvider", "App")), "providers");
         assert_eq!(layer(declare("Database\\Seeders\\UserSeeder", "Database\\Seeders")), "database");
@@ -918,6 +927,7 @@ mod tests {
             declare("App\\Models\\User", "App"),
             declare("App\\Http\\Controllers\\UserController", "App"),
             declare("App\\Livewire\\Profile", "App"),
+            declare("App\\Mcp\\Tools\\ListUsers", "App"),
             declare("App\\Console\\Commands\\Prune", "App"),
             declare("App\\Providers\\AppServiceProvider", "App"),
             declare("App\\Events\\Registered", "App"),
@@ -952,6 +962,11 @@ mod tests {
         assert_eq!(broken("Database\\Seeders\\UserSeeder", "App\\Http\\Controllers\\UserController"), None);
         assert_eq!(broken("Tests\\Feature\\UserTest", "App\\Console\\Commands\\Prune"), None);
         assert_eq!(broken("App\\Models\\User", "Illuminate\\Http\\Request"), None);
+        assert_eq!(broken("App\\Models\\User", "App\\Mcp\\Tools\\ListUsers"), None);
+        assert_eq!(broken("App\\Mcp\\Tools\\ListUsers", "App\\Models\\User"), None);
+        assert_eq!(broken("App\\Mcp\\Tools\\ListUsers", "App\\Http\\Controllers\\UserController"), None);
+        assert_eq!(broken("App\\Livewire\\Profile", "App\\Mcp\\Tools\\ListUsers"), None);
+        assert_eq!(broken("App\\Console\\Commands\\Prune", "App\\Mcp\\Tools\\ListUsers"), None);
     }
 
     #[test]

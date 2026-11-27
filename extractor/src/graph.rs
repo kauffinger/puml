@@ -168,6 +168,10 @@ pub enum EdgeKind {
 }
 
 impl EdgeKind {
+    pub fn is_inheritance(self) -> bool {
+        matches!(self, EdgeKind::Extends | EdgeKind::Implements | EdgeKind::UsesTrait)
+    }
+
     /// Wiring edges are what Laravel connects at runtime: a route to its controller, an event to its
     /// listeners. They are drawn, but they are not dependencies in the code, so the rules, the cycles and
     /// the metrics leave them out.

@@ -177,7 +177,7 @@ pub fn report(graph: &Graph, source: &str) -> String {
     index.out("");
     index.out("LAYERS  (first namespace segment under each PSR-4 root decides the layer the rules apply to)");
 
-    for layer in ["http", "console", "providers", "core", "database", "tests"] {
+    for layer in ["http", "mcp", "console", "providers", "core", "database", "tests"] {
         let namespaces: Vec<String> = verdict
             .layers
             .iter()

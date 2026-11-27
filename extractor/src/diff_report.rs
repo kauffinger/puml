@@ -169,6 +169,10 @@ impl<'a> Writer<'a> {
                 self.item(1, format!("now: {}", self.list(modules)));
             }
 
+            for edge in &cycle.joined_through {
+                self.item(1, format!("joined through {} -> {}  {}", edge.from, edge.to, evidence(edge)));
+            }
+
             if let Some(cost) = &cycle.cost {
                 let cut: Vec<String> = cycle.cut.iter().map(|edge| format!("{} -> {} ({})", edge.from, edge.to, edge.weight)).collect();
 
